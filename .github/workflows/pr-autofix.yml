@@ -1,0 +1,63 @@
+# =============================================================================
+# PR Auto-Fixer Workflow (Reusable)
+# =============================================================================
+# Purpose : Automatically fixes linting and formatting errors and commits the
+#           changes back to the developer's PR branch.
+# Trigger : Called by consumer repos via `workflow_call` or `workflow_dispatch`.
+# =============================================================================
+
+name: PR Auto-Fix
+
+on:
+  workflow_call:
+    inputs:
+      node-version:
+        description: "Node.js version to use"
+        required: false
+        type: string
+        default: "20"
+
+jobs:
+  autofix:
+    name: Auto-fix Lint & Format
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    permissions:
+      contents: write
+
+    steps:
+      # ── 1. Checkout the PR branch (full history for commit) ─────────────
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref }}
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      # ── 2. Setup Node.js with dependency caching ────────────────────────
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ inputs.node-version }}
+          cache: "npm"
+
+      # ── 3. Install dependencies ─────────────────────────────────────────
+      - name: Install dependencies
+        run: npm ci
+
+      # ── 4. Run ESLint with auto-fix ─────────────────────────────────────
+      - name: Fix lint errors
+        run: npm run eslint -- . --fix
+        continue-on-error: true
+
+      # ── 5. Run Prettier to format code ──────────────────────────────────
+      - name: Fix formatting
+        run: npm run prettier -- --write .
+        continue-on-error: true
+
+      # ── 6. Commit & push fixed files back to the PR branch ─────────────
+      - name: Commit auto-fixed changes
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: "style: auto-fix lint and formatting issues"
+          branch: ${{ github.head_ref }}

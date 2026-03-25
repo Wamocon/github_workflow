@@ -1,0 +1,51 @@
+# =============================================================================
+# Example: Caller Workflow for Pull Requests
+# =============================================================================
+# COPY this file into your project's .github/workflows/ directory.
+# It calls the shared reusable workflows from the central repository.
+#
+# Replace YOUR_ORG with your GitHub organisation name.
+# Replace THIS_REPO with the name of this central shared repository.(github_workflow)
+# Replace @main with a specific tag (e.g. @v1) for stability.
+# Optional: Set custom `db-schema` only if this repo does not use `test`.
+# =============================================================================
+
+name: PR Pipeline
+
+on:
+  pull_request:
+    branches: [main, master]
+    types: [opened, synchronize, reopened]
+
+# Prevent concurrent runs for the same PR
+concurrency:
+  group: pr-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  # ─── Step 1: Auto-fix lint & format errors ───────────────────────────────
+  autofix:
+    name: Auto-Fix
+    uses: YOUR_ORG/THIS_REPO/.github/workflows/pr-autofix.yml@main
+    permissions:
+      contents: write
+
+  # ─── Step 2: Validate code (typecheck + lint) ───────────────────────────
+  validate:
+    name: PR Checks
+    needs: autofix
+    uses: YOUR_ORG/THIS_REPO/.github/workflows/pr-checks.yml@main
+
+  # ─── Step 3: Deploy preview after checks pass ──────────────────────────
+  preview:
+    name: Deploy Preview
+    needs: validate
+    uses: YOUR_ORG/THIS_REPO/.github/workflows/deploy-preview.yml@main
+    with:
+      # Optional per-repo overrides:
+      # vercel-environment: preview
+      # db-schema: qa
+      node-version: "20"
+    secrets:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}

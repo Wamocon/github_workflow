@@ -1,0 +1,35 @@
+# =============================================================================
+# Example: Caller Workflow for Production Deployment
+# =============================================================================
+# COPY this file into your project's .github/workflows/ directory.
+# It deploys to production whenever code is merged into main/master.
+#
+# Replace YOUR_ORG with your GitHub organisation name.
+# Replace THIS_REPO with the name of this central shared repository.(github_workflow)
+# Replace @main with a specific tag (e.g. @v1) for stability.
+# Optional: Set custom `db-schema` only if this repo does not use `prod`.
+# =============================================================================
+
+name: Production Deploy
+
+on:
+  push:
+    branches: [main, master]
+
+# Only one production deploy at a time
+concurrency:
+  group: production-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy Production
+    uses: YOUR_ORG/THIS_REPO/.github/workflows/deploy-production.yml@main
+    with:
+      # Optional per-repo overrides:
+      # vercel-environment: production
+      # db-schema: live
+      node-version: "20"
+    secrets:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}

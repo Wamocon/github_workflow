@@ -1,0 +1,48 @@
+# =============================================================================
+# PR Validation Workflow (Reusable)
+# =============================================================================
+# Purpose : Blocks bad code from being merged by running type-checking and
+#           linting on every Pull Request.
+# Trigger : Called by consumer repos via `workflow_call`.
+# =============================================================================
+
+name: PR Checks
+
+on:
+  workflow_call:
+    inputs:
+      node-version:
+        description: "Node.js version to use"
+        required: false
+        type: string
+        default: "20"
+
+jobs:
+  validate:
+    name: Typecheck & Lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      # ── 1. Checkout the repository code ──────────────────────────────────
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # ── 2. Setup Node.js with dependency caching ────────────────────────
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ inputs.node-version }}
+          cache: "npm"
+
+      # ── 3. Install dependencies ─────────────────────────────────────────
+      - name: Install dependencies
+        run: npm ci
+
+      # ── 4. Run TypeScript type-checking ─────────────────────────────────
+      - name: Typecheck
+        run: npm run tsc -- --noEmit
+
+      # ── 5. Run ESLint ───────────────────────────────────────────────────
+      - name: Lint
+        run: npm run eslint -- .
