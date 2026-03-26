@@ -9,6 +9,7 @@ Central repository containing reusable GitHub Actions workflows and standardised
 ```
 .
 ├── .github/
+│   ├── copilot-instructions.md     # Workspace-level GitHub Copilot instructions for this repo
 │   └── workflows/
 │       ├── pr-checks.yml            # Reusable: TypeScript + ESLint validation
 │       ├── pr-autofix.yml           # Reusable: Auto-fix lint & format errors
@@ -99,6 +100,48 @@ Developer merges PR into main
 | [MCP Setup](docs/mcp-setup.md) | Configure AI tools to read your database schema via Supabase MCP |
 | [GitHub Copilot Guide](docs/github-copilot-guide.md) | Features, shortcuts, prompting tips, and integration with our stack |
 | [Tips & Best Practices](docs/tips-and-best-practices.md) | Git conventions, code quality, debugging, and quick reference commands |
+
+---
+
+## GitHub Copilot Instructions
+
+### Repo-Level (Team Shared)
+
+This repository uses a workspace instruction file at:
+
+- [.github/copilot-instructions.md](.github/copilot-instructions.md)
+
+If a project should enforce team-specific Copilot behavior, keep this file in that repo under `.github/copilot-instructions.md`.
+
+### User-Level (Personal, Works Across All Repos)
+
+If a developer wants personal instructions without adding files in every repository, they can create a user-level instruction file in:
+
+- `%APPDATA%\\Code\\User\\prompts\\`
+- Typical Windows path: `C:\Users\<your-user>\AppData\Roaming\Code\User\prompts\`
+
+Example user-level file:
+
+- `C:\Users\<your-user>\AppData\Roaming\Code\User\prompts\my-default.instructions.md`
+
+Example content:
+
+```md
+---
+description: "Use when generating or editing code in any repo"
+---
+
+- Always check linting, formatting, type checks, and build impact.
+- For database tasks, use MCP with the correct project reference.
+- Prefer minimal, safe changes and explain assumptions.
+```
+
+When both exist:
+
+- Repo-level instructions define project/team rules.
+- User-level instructions add personal defaults across repositories.
+
+Use repo-level instructions for shared team standards, and user-level instructions for personal preferences.
 
 ---
 
