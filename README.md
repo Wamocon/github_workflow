@@ -1,5 +1,10 @@
 # WAMOCON — Shared Workflows & Developer Guide
 
+<p align="center">
+       <img src="legal-docs/made-in-germany-sign.svg" alt="Entwickelt in Deutschland Sign" width="130" />
+</p>
+<h2 align="center">Entwickelt in Deutschland</h2>
+
 Central repository containing reusable GitHub Actions workflows and standardised documentation for all organisation projects.
 
 ---
@@ -25,8 +30,19 @@ Central repository containing reusable GitHub Actions workflows and standardised
 │   ├── mcp-setup.md                 # AI tool MCP configuration for Supabase
 │   ├── github-copilot-guide.md      # GitHub Copilot usage guide
 │   └── tips-and-best-practices.md   # General tips, conventions, and debugging
+├── legal-docs/
+│   ├── made-in-germany-sign.svg      # Reusable developed-in-germany sign asset
+│   ├── impressum.md                  # Reusable Impressum legal text
+│   ├── datenschutzerklaerung.md      # Reusable Datenschutzerklärung legal text
+│   └── agb.md                        # Reusable AGB legal text
 └── README.md                        # This file
 ```
+
+---
+
+## <span style="color:#b54708;">Neu: Reusable Legal Docs für neue Apps</span>
+
+<span style="color:#b54708; font-weight:700;">Wichtiger Hinweis für alle Entwickler:</span> In [legal-docs/](legal-docs/) liegen direkt nutzbare Vorlagen für <strong>Impressum</strong>, <strong>Datenschutzerklärung</strong> und <strong>AGB</strong> inklusive Sign-Asset. Diese Dateien können in neue Apps übernommen und projektspezifisch angepasst werden.
 
 ---
 
