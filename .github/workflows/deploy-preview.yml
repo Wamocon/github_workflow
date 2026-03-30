@@ -1,32 +1,38 @@
 # =============================================================================
-# Vercel Preview Deployment Workflow (Reusable)
+# Vercel Deployment Workflow (Reusable)
 # =============================================================================
-# Purpose : Deploys a preview build using the TEST database schema.
-#           Includes both Next.js frontend and backend runtime code
-#           (API routes, route handlers, and server actions) in one deployment.
-#           Generates a unique preview URL for each Pull Request.
-# Trigger : Called by consumer repos via `workflow_call` after PR checks pass.
-# Secrets : Requires VERCEL_TOKEN and VERCEL_PROJECT_ID.
-#           VERCEL_ORG_ID is expected at organisation level (secret or variable).
+# Purpose : Unified Vercel CLI deployment workflow called by consumer repos.
+#           Authenticates via a personal token, bypassing Vercel Hobby plan
+#           team restrictions on private repositories.
+#
+#           The caller decides the deployment target by passing:
+#             vercel_env  → "preview" or "production"
+#             vercel_args → "" (preview) or "--prod" (production)
+#             db_schema   → optional NEXT_PUBLIC_DB_SCHEMA override.
+#                           Leave empty to use the value already set in the
+#                           Vercel environment (recommended for most projects).
+#
+# Secrets : VERCEL_TOKEN and VERCEL_ORG_ID at organisation level.
+#           VERCEL_PROJECT_ID as a repo-level secret in the caller.
+#           Pass all three via `secrets: inherit` in the caller workflow.
 # =============================================================================
 
-name: Deploy Preview
+name: Vercel Deploy
 
 on:
   workflow_call:
     inputs:
-      node-version:
-        description: "Node.js version to use"
+      vercel_env:
+        description: "Vercel environment to pull ('preview' or 'production')"
+        required: true
+        type: string
+      vercel_args:
+        description: "Extra args for vercel build/deploy ('' or '--prod')"
         required: false
         type: string
-        default: "20"
-      vercel-environment:
-        description: "Vercel environment to pull"
-        required: false
-        type: string
-        default: "preview"
-      db-schema:
-        description: "Optional NEXT_PUBLIC_DB_SCHEMA override (for custom schema names)"
+        default: ""
+      db_schema:
+        description: "Optional NEXT_PUBLIC_DB_SCHEMA override. Leave empty to use the value from Vercel environment variables."
         required: false
         type: string
         default: ""
@@ -35,54 +41,63 @@ on:
         required: true
       VERCEL_PROJECT_ID:
         required: true
+      VERCEL_ORG_ID:
+        required: false
 
 jobs:
-  deploy-preview:
-    name: Deploy Preview to Vercel
+  deploy:
+    name: Deploy to Vercel
     runs-on: ubuntu-latest
     timeout-minutes: 20
-
-    env:
-      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID || vars.VERCEL_ORG_ID }}
-      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
 
     steps:
       # ── 1. Checkout code ─────────────────────────────────────────────────
       - name: Checkout code
         uses: actions/checkout@v4
 
-      # ── 2. Setup Node.js ────────────────────────────────────────────────
+      # ── 2. Setup Node.js 20 ─────────────────────────────────────────────
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: ${{ inputs.node-version }}
+          node-version: "20"
 
-      # ── 3. Install Vercel CLI globally ──────────────────────────────────
+      # ── 3. Install Vercel CLI globally ───────────────────────────────────
       - name: Install Vercel CLI
-        run: npm install -g vercel
+        run: npm install --global vercel@latest
 
-      # ── 4. Pull Vercel preview environment ──────────────────────────────
-      # This fetches environment variables including NEXT_PUBLIC_DB_SCHEMA=test
-      - name: Pull Vercel environment (preview)
-        run: vercel pull --yes --environment=${{ inputs.vercel-environment }} --token=$VERCEL_TOKEN
+      # ── 4. Pull Vercel environment variables ──────────────────────────────
+      # Fetches env vars for the target environment from Vercel.
+      # This includes NEXT_PUBLIC_DB_SCHEMA if configured in Vercel Dashboard.
+      - name: Pull Vercel environment
+        env:
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID || vars.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+        run: vercel pull --yes --environment=${{ inputs.vercel_env }} --token=${{ secrets.VERCEL_TOKEN }}
 
-      # ── 4.1 Optional schema override for repo-specific naming ───────────
-      - name: Apply optional DB schema override
-        if: ${{ inputs.db-schema != '' }}
+      # ── 4.1 Optional schema override ─────────────────────────────────────
+      # Only runs if the caller explicitly passes a db_schema input.
+      # Most projects should leave this empty and rely on Vercel env vars.
+      - name: Apply DB schema override
+        if: ${{ inputs.db_schema != '' }}
         run: |
-          echo "NEXT_PUBLIC_DB_SCHEMA=${{ inputs.db-schema }}" >> $GITHUB_ENV
-          echo "Using schema override: ${{ inputs.db-schema }}" >> $GITHUB_STEP_SUMMARY
+          echo "NEXT_PUBLIC_DB_SCHEMA=${{ inputs.db_schema }}" >> $GITHUB_ENV
+          echo "Schema override applied: ${{ inputs.db_schema }}" >> $GITHUB_STEP_SUMMARY
 
-      # ── 5. Build frontend + backend runtime ─────────────────────────────
-      - name: Build frontend and backend (Next.js)
-        run: vercel build --token=$VERCEL_TOKEN
+      # ── 5. Build project ──────────────────────────────────────────────────
+      - name: Build project
+        env:
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID || vars.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+        run: vercel build ${{ inputs.vercel_args }} --token=${{ secrets.VERCEL_TOKEN }}
 
-      # ── 6. Deploy the pre-built output ──────────────────────────────────
-      - name: Deploy to Vercel (preview)
+      # ── 6. Deploy to Vercel ───────────────────────────────────────────────
+      - name: Deploy to Vercel
         id: deploy
+        env:
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID || vars.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
         run: |
-          PREVIEW_URL=$(vercel deploy --prebuilt --token=$VERCEL_TOKEN)
-          echo "preview_url=$PREVIEW_URL" >> $GITHUB_OUTPUT
-          echo "### 🔗 Preview Deployment" >> $GITHUB_STEP_SUMMARY
-          echo "URL: $PREVIEW_URL" >> $GITHUB_STEP_SUMMARY
+          DEPLOY_URL=$(vercel deploy --prebuilt ${{ inputs.vercel_args }} --token=${{ secrets.VERCEL_TOKEN }})
+          echo "deploy_url=$DEPLOY_URL" >> $GITHUB_OUTPUT
+          echo "### Deployment" >> $GITHUB_STEP_SUMMARY
+          echo "URL: $DEPLOY_URL" >> $GITHUB_STEP_SUMMARY

@@ -1,13 +1,18 @@
 # =============================================================================
-# Example: Caller Workflow for Pull Requests
+# Example: Caller Workflow — PR Pipeline (Auto-Fix + Checks)
 # =============================================================================
-# COPY this file into your project's .github/workflows/ directory.
-# It calls the shared reusable workflows from the central repository.
+# COPY this file into your project as:
+#   .github/workflows/pr-pipeline.yml
 #
-# Replace YOUR_ORG with your GitHub organisation name.
-# Replace THIS_REPO with the name of this central shared repository.(github_workflow)
-# Replace @main with a specific tag (e.g. @v1) for stability.
-# Optional: Set custom `db-schema` only if this repo does not use `test`.
+# Then replace:
+#   YOUR_ORG  → your GitHub organisation name  (e.g. Wamocon)
+#   THIS_REPO → this central repository name   (e.g. github_workflow)
+#
+# This workflow runs on every Pull Request targeting main/master.
+# It auto-fixes lint/format issues then validates with typecheck + lint.
+#
+# Deployment (preview + production) is handled separately by deploy.yml.
+# See examples/caller-deploy.yml.
 # =============================================================================
 
 name: PR Pipeline
@@ -17,7 +22,7 @@ on:
     branches: [main, master]
     types: [opened, synchronize, reopened]
 
-# Prevent concurrent runs for the same PR
+# Cancel redundant runs on the same PR
 concurrency:
   group: pr-${{ github.event.pull_request.number }}
   cancel-in-progress: true
@@ -35,17 +40,3 @@ jobs:
     name: PR Checks
     needs: autofix
     uses: YOUR_ORG/THIS_REPO/.github/workflows/pr-checks.yml@main
-
-  # ─── Step 3: Deploy preview after checks pass ──────────────────────────
-  preview:
-    name: Deploy Preview
-    needs: validate
-    uses: YOUR_ORG/THIS_REPO/.github/workflows/deploy-preview.yml@main
-    with:
-      # Optional per-repo overrides:
-      # vercel-environment: preview
-      # db-schema: qa
-      node-version: "20"
-    secrets:
-      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}

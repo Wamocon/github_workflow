@@ -74,20 +74,24 @@ This creates a `.vercel/` folder in your project with `project.json`:
 
 From `.vercel/project.json`, copy:
 - `orgId` → This is your `VERCEL_ORG_ID` (set once at organisation level)
-- `projectId` → This is your `VERCEL_PROJECT_ID`
+- `projectId` → This is your `VERCEL_PROJECT_ID_PROD` (production Vercel project)
+
+If you maintain a separate Vercel project for staging, link that project with `vercel link` and copy its `projectId` as `VERCEL_PROJECT_ID_STAGING`.
 
 Your `VERCEL_TOKEN` is generated from Vercel Dashboard → Settings → Tokens.
 
 ### Step 5: Add Secrets to GitHub
 
-Set `VERCEL_ORG_ID` once in **GitHub Organisation Secrets or Variables**.
+Set `VERCEL_ORG_ID` and `VERCEL_TOKEN` once in **GitHub Organisation Secrets**.
 
 Then go to **GitHub → Your Repo → Settings → Secrets and variables → Actions** and add:
 
-| Secret Name          | Value                     |
-|----------------------|---------------------------|
-| `VERCEL_TOKEN`       | Your Vercel access token  |
-| `VERCEL_PROJECT_ID`  | From `project.json`       |
+| Secret Name                 | Scope        | Value                                          |
+|-----------------------------|--------------|------------------------------------------------|
+| `VERCEL_TOKEN`              | Organisation | Your Vercel personal access token              |
+| `VERCEL_ORG_ID`             | Organisation | `orgId` from `.vercel/project.json`            |
+| `VERCEL_PROJECT_ID_PROD`    | Repository   | `projectId` of the production Vercel project   |
+| `VERCEL_PROJECT_ID_STAGING` | Repository   | `projectId` of the staging Vercel project      |
 
 ---
 
@@ -161,7 +165,8 @@ vercel env pull .env.local
 - [ ] Vercel CLI installed and logged in
 - [ ] Project linked via `vercel link`
 - [ ] `VERCEL_ORG_ID` set at organisation level (secret or variable)
-- [ ] `VERCEL_TOKEN`, `VERCEL_PROJECT_ID` added as repo secrets
+- [ ] `VERCEL_TOKEN` and `VERCEL_ORG_ID` set at organisation level
+- [ ] `VERCEL_PROJECT_ID_PROD` and `VERCEL_PROJECT_ID_STAGING` added as repo secrets
 - [ ] Required variables set in Vercel Dashboard (Preview + Production)
 - [ ] Optional server-only variables added only if needed
 - [ ] `NEXT_PUBLIC_DB_SCHEMA` set to `test` for Preview, `prod` for Production

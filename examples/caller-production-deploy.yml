@@ -1,35 +1,67 @@
 # =============================================================================
-# Example: Caller Workflow for Production Deployment
+# Example: Caller Workflow — Unified Vercel Deployment
 # =============================================================================
-# COPY this file into your project's .github/workflows/ directory.
-# It deploys to production whenever code is merged into main/master.
+# COPY this file into your project as:
+#   .github/workflows/deploy.yml
 #
-# Replace YOUR_ORG with your GitHub organisation name.
-# Replace THIS_REPO with the name of this central shared repository.(github_workflow)
-# Replace @main with a specific tag (e.g. @v1) for stability.
-# Optional: Set custom `db-schema` only if this repo does not use `prod`.
+# Then replace:
+#   YOUR_ORG  → your GitHub organisation name  (e.g. Wamocon)
+#   THIS_REPO → this central repository name   (e.g. github_workflow)
+#
+# Secrets required (VERCEL_TOKEN and VERCEL_ORG_ID at organisation level,
+# VERCEL_PROJECT_ID at repo level — see docs/supabase-vercel-linking.md):
+#
+# How it works:
+#   pull_request → main/master  →  Vercel *preview* deployment
+#   push         → main/master  →  Vercel *production* deployment
+#
+# Schema (db_schema input):
+#   Leave db_schema empty (default) → schema is pulled from Vercel env vars.
+#   Pass a value only if you need to override what Vercel has configured,
+#   e.g. projects using non-standard schema names like "qa" or "live".
 # =============================================================================
 
-name: Production Deploy
+name: Deploy
 
 on:
   push:
     branches: [main, master]
+  pull_request:
+    branches: [main, master]
 
-# Only one production deploy at a time
+# Cancel in-progress preview deploys on new commits; never cancel production
 concurrency:
-  group: production-deploy
-  cancel-in-progress: false
+  group: deploy-${{ github.ref }}-${{ github.event_name }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  # ─── Resolve deployment parameters ──────────────────────────────────────
+  set-vars:
+    name: Resolve deployment variables
+    runs-on: ubuntu-latest
+    outputs:
+      vercel_env: ${{ steps.resolve.outputs.vercel_env }}
+      vercel_args: ${{ steps.resolve.outputs.vercel_args }}
+    steps:
+      - name: Resolve vercel_env and vercel_args
+        id: resolve
+        run: |
+          if [[ "${{ github.event_name }}" == "push" ]]; then
+            echo "vercel_env=production" >> $GITHUB_OUTPUT
+            echo "vercel_args=--prod" >> $GITHUB_OUTPUT
+          else
+            echo "vercel_env=preview" >> $GITHUB_OUTPUT
+            echo "vercel_args=" >> $GITHUB_OUTPUT
+          fi
+
+  # ─── Deploy ──────────────────────────────────────────────────────────────
   deploy:
-    name: Deploy Production
-    uses: YOUR_ORG/THIS_REPO/.github/workflows/deploy-production.yml@main
+    name: Deploy to Vercel
+    needs: set-vars
+    uses: YOUR_ORG/THIS_REPO/.github/workflows/deploy-preview.yml@main
     with:
-      # Optional per-repo overrides:
-      # vercel-environment: production
-      # db-schema: live
-      node-version: "20"
-    secrets:
-      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+      vercel_env: ${{ needs.set-vars.outputs.vercel_env }}
+      vercel_args: ${{ needs.set-vars.outputs.vercel_args }}
+      # db_schema: ""        # empty = use value from Vercel Dashboard env vars
+      # db_schema: "qa"      # override for repos with non-standard schema names
+    secrets: inherit
