@@ -1,18 +1,32 @@
 # =============================================================================
-# Example: Caller Workflow — PR Pipeline (Auto-Fix + Checks)
+# STEP 1 of 2 — PR Pipeline (Auto-Fix + Checks)
 # =============================================================================
 # COPY this file into your project as:
 #   .github/workflows/pr-pipeline.yml
 #
-# Then replace:
-#   YOUR_ORG  → your GitHub organisation name  (e.g. Wamocon)
-#   THIS_REPO → this central repository name   (e.g. github_workflow)
+# ─────────────────────────────────────────────────────────────────────────────
+# YOU NEED BOTH FILES:
+#   caller-pr-pipeline.yml       → .github/workflows/pr-pipeline.yml  ← THIS FILE
+#   caller-production-deploy.yml → .github/workflows/deploy.yml
+# ─────────────────────────────────────────────────────────────────────────────
 #
-# This workflow runs on every Pull Request targeting main/master.
-# It auto-fixes lint/format issues then validates with typecheck + lint.
+# WHAT THIS FILE DOES:
+#   Every time a PR is opened or updated against main/master:
+#     1. Auto-Fix — runs ESLint --fix and Prettier, commits fixes back to the branch
+#     2. PR Checks — runs TypeScript type-check and ESLint (blocks merge on failure)
 #
-# Deployment (preview + production) is handled separately by deploy.yml.
-# See examples/caller-deploy.yml.
+#   This file does NOT deploy anything.
+#   Vercel preview + production deployments are in caller-production-deploy.yml.
+#
+# ─────────────────────────────────────────────────────────────────────────────
+# SETUP — replace the placeholders below:
+#
+#   Replace YOUR_ORG and THIS_REPO in both `uses:` lines:
+#     YOUR_ORG  → GitHub org name            (e.g. Wamocon)
+#     THIS_REPO → central workflow repo name  (e.g. github_workflow)
+#
+#   No secrets to add for this file — all checks run with the default
+#   GITHUB_TOKEN that GitHub provides automatically.
 # =============================================================================
 
 name: PR Pipeline
@@ -22,7 +36,7 @@ on:
     branches: [main, master]
     types: [opened, synchronize, reopened]
 
-# Cancel redundant runs on the same PR
+# Cancel redundant runs on the same PR when a new commit is pushed
 concurrency:
   group: pr-${{ github.event.pull_request.number }}
   cancel-in-progress: true
@@ -31,12 +45,14 @@ jobs:
   # ─── Step 1: Auto-fix lint & format errors ───────────────────────────────
   autofix:
     name: Auto-Fix
+    # ⚠️  Replace YOUR_ORG/THIS_REPO:
     uses: YOUR_ORG/THIS_REPO/.github/workflows/pr-autofix.yml@main
     permissions:
       contents: write
 
-  # ─── Step 2: Validate code (typecheck + lint) ───────────────────────────
+  # ─── Step 2: Validate code (typecheck + lint) ────────────────────────────
   validate:
     name: PR Checks
     needs: autofix
+    # ⚠️  Replace YOUR_ORG/THIS_REPO:
     uses: YOUR_ORG/THIS_REPO/.github/workflows/pr-checks.yml@main
