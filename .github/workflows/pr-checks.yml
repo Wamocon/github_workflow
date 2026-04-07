@@ -41,8 +41,8 @@ jobs:
 
       # ── 4. Run TypeScript type-checking ─────────────────────────────────
       - name: Typecheck
-        run: npm run tsc -- --noEmit
+        run: npm run typecheck
 
       # ── 5. Run ESLint ───────────────────────────────────────────────────
       - name: Lint
-        run: npm run eslint -- .
+        run: npm run lint

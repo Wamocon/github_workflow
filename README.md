@@ -56,7 +56,7 @@ Copy the two files from `examples/` into your project's `.github/workflows/` dir
 # From your project root
 mkdir -p .github/workflows
 cp path/to/this-repo/examples/caller-pr-pipeline.yml .github/workflows/pr-pipeline.yml
-cp path/to/this-repo/examples/caller-production-deploy.yml .github/workflows/production-deploy.yml
+cp path/to/this-repo/examples/caller-production-deploy.yml .github/workflows/deploy.yml
 ```
 
 ### 2. Update Organisation & Repo Name
@@ -64,7 +64,7 @@ cp path/to/this-repo/examples/caller-production-deploy.yml .github/workflows/pro
 In both files, replace `YOUR_ORG/THIS_REPO` with your actual values:
 
 ```yaml
-uses: wamocon/github-workflow/.github/workflows/pr-checks.yml@main
+uses: Wamocon/github_workflow/.github/workflows/pr-checks.yml@main
 ```
 
 ### 3. Add GitHub Secrets

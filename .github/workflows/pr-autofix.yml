@@ -46,13 +46,20 @@ jobs:
         run: npm ci
 
       # ── 4. Run ESLint with auto-fix ─────────────────────────────────────
+      # Uses the standard `lint` script — passes --fix via the -- separator.
       - name: Fix lint errors
-        run: npm run eslint -- . --fix
+        run: npm run lint -- --fix
         continue-on-error: true
 
-      # ── 5. Run Prettier to format code ──────────────────────────────────
+      # ── 5. Run Prettier to format code (optional) ───────────────────────
+      # Only runs if prettier is listed in the project's package.json.
       - name: Fix formatting
-        run: npm run prettier -- --write .
+        run: |
+          if [ -f "node_modules/.bin/prettier" ]; then
+            node_modules/.bin/prettier --write .
+          else
+            echo "Prettier not installed in this project — skipping."
+          fi
         continue-on-error: true
 
       # ── 6. Commit & push fixed files back to the PR branch ─────────────

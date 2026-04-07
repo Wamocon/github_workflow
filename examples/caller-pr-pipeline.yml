@@ -12,21 +12,21 @@
 #
 # WHAT THIS FILE DOES:
 #   Every time a PR is opened or updated against main/master:
-#     1. Auto-Fix — runs ESLint --fix and Prettier, commits fixes back to the branch
-#     2. PR Checks — runs TypeScript type-check and ESLint (blocks merge on failure)
+#     1. Auto-Fix — runs ESLint --fix and Prettier (if installed),
+#        commits fixes back to the branch
+#     2. PR Checks — runs TypeScript type-check and ESLint
+#        (blocks merge on failure)
 #
 #   This file does NOT deploy anything.
 #   Vercel preview + production deployments are in caller-production-deploy.yml.
 #
 # ─────────────────────────────────────────────────────────────────────────────
-# SETUP — replace the placeholders below:
+# SETUP — no placeholders to replace.
 #
-#   Replace YOUR_ORG and THIS_REPO in both `uses:` lines:
-#     YOUR_ORG  → GitHub org name            (e.g. Wamocon)
-#     THIS_REPO → central workflow repo name  (e.g. github_workflow)
-#
-#   No secrets to add for this file — all checks run with the default
-#   GITHUB_TOKEN that GitHub provides automatically.
+#   The workflow already references Wamocon/github_workflow (the central repo).
+#   The only thing your project needs:
+#     - GITHUB_TOKEN is provided automatically by GitHub — no setup needed.
+#     - Your package.json must have a "lint" script and a "typecheck" script.
 # =============================================================================
 
 name: PR Pipeline
@@ -45,14 +45,12 @@ jobs:
   # ─── Step 1: Auto-fix lint & format errors ───────────────────────────────
   autofix:
     name: Auto-Fix
-    # ⚠️  Replace YOUR_ORG/THIS_REPO:
-    uses: YOUR_ORG/THIS_REPO/.github/workflows/pr-autofix.yml@main
+    uses: Wamocon/github_workflow/.github/workflows/pr-autofix.yml@main
     permissions:
       contents: write
 
-  # ─── Step 2: Validate code (typecheck + lint) ────────────────────────────
+  # ─── Step 2: Validate code (typecheck + lint) ────────────────────────────────
   validate:
     name: PR Checks
     needs: autofix
-    # ⚠️  Replace YOUR_ORG/THIS_REPO:
-    uses: YOUR_ORG/THIS_REPO/.github/workflows/pr-checks.yml@main
+    uses: Wamocon/github_workflow/.github/workflows/pr-checks.yml@main

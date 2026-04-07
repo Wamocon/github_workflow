@@ -17,18 +17,14 @@
 #       → Vercel PRODUCTION deployment  (live URL, uses Production env vars)
 #
 # ─────────────────────────────────────────────────────────────────────────────
-# SETUP — replace the placeholder below, then add one repo secret:
+# SETUP — add ONE secret to your repo:
 #
-#   1. Replace YOUR_ORG and THIS_REPO in the `uses:` line of the deploy job:
-#        YOUR_ORG  → GitHub org name            (e.g. Wamocon)
-#        THIS_REPO → central workflow repo name  (e.g. github_workflow)
-#
-#   2. Add ONE secret to this repo (Settings → Secrets → Actions):
-#        VERCEL_PROJECT_ID  →  from Vercel Project → Settings → General → Project ID
+#   Settings → Secrets → Actions → New repository secret:
+#     VERCEL_PROJECT_ID  →  from Vercel Project → Settings → General → Project ID
 #
 #   Everything else is already set at organisation level:
-#        VERCEL_TOKEN    (personal Vercel access token — works on Hobby plan)
-#        VERCEL_ORG_ID   (your Vercel personal account ID, not a team ID)
+#     VERCEL_TOKEN    (personal Vercel access token — works on Hobby plan)
+#     VERCEL_ORG_ID   (your Vercel personal account ID, not a team ID)
 #
 # ─────────────────────────────────────────────────────────────────────────────
 # HOBBY VERCEL + INTERNAL ORG NOTE:
@@ -37,15 +33,10 @@
 #   with a personal Vercel Hobby account even if the GitHub repo is private
 #   or internal within an organisation.
 #
-#   Any org member who opens a PR or merges to main/master will trigger this
-#   workflow using the org-level VERCEL_TOKEN, so they do not need their own
-#   Vercel access.
-#
 # ─────────────────────────────────────────────────────────────────────────────
 # SCHEMA (optional):
 #   Leave db_schema empty → schema value is pulled from Vercel env vars.
-#   Only set db_schema if you need to override what Vercel has configured,
-#   e.g. for repos using custom schema names like "qa" or "live".
+#   Only set db_schema if you need to override, e.g. "qa" or "live".
 # =============================================================================
 
 name: Deploy — Preview & Production
@@ -95,8 +86,7 @@ jobs:
   deploy:
     name: ${{ github.event_name == 'push' && 'Deploy — Production' || 'Deploy — Preview' }}
     needs: set-vars
-    # ⚠️  Replace YOUR_ORG and THIS_REPO with your actual values:
-    uses: YOUR_ORG/THIS_REPO/.github/workflows/deploy-preview.yml@main
+    uses: Wamocon/github_workflow/.github/workflows/deploy-preview.yml@main
     with:
       vercel_env: ${{ needs.set-vars.outputs.vercel_env }}
       vercel_args: ${{ needs.set-vars.outputs.vercel_args }}
