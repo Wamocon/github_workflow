@@ -32,6 +32,7 @@
 name: PR Pipeline
 
 on:
+  workflow_dispatch:
   pull_request:
     branches: [main, master]
     types: [opened, synchronize, reopened]
