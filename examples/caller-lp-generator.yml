@@ -21,7 +21,7 @@ on:
 jobs:
   run-automation:
     # IMPORTANT: Path to the central workflow. Format: OrgName/RepoName/.github/...@Branch
-    uses: Wamocon/githubworkflow/.github/workflows/reusable-lp-generator.yml@main
+    uses: Wamocon/github_workflow/.github/workflows/lp-generator.yml@main
     with:
       template_repo: ${{ github.event.inputs.custom_template }}
       new_repo_name: ${{ github.event.inputs.custom_name }}
