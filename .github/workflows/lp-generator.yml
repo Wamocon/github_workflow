@@ -1,0 +1,119 @@
+name: Reusable LP Generator (Central Logic)
+
+# workflow_call allows this workflow to be called by other repositories in the Org
+on:
+  workflow_call:
+    inputs:
+      template_repo:
+        description: "The repository used as the design template"
+        required: true
+        type: string
+      new_repo_name:
+        description: "The name of the landing page repository to be created"
+        required: true
+        type: string
+      ai_prompt:
+        description: "The specific instructions for GitHub Copilot"
+        required: true
+        type: string
+    secrets:
+      ORG_PAT:
+        description: "Token for repo creation and git operations (Org-scoped)"
+        required: true
+      COPILOT_PAT:
+        description: "Token with Copilot permissions (User-scoped)"
+        required: true
+
+jobs:
+  generate-lp:
+    runs-on: ubuntu-latest
+    steps:
+      # STEP 1: Checkout the current project source
+      # We need the README.md and code here so Copilot understands the product context.
+      - name: Checkout Project Source
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # STEP 2: Create the new target repository in the Organization
+      # Using GitHub CLI (gh). The --internal flag ensures it stays within the Org.
+      - name: Create Target Repo
+        env:
+          GH_TOKEN: ${{ secrets.ORG_PAT }}
+        run: |
+          gh repo create ${{ github.repository_owner }}/${{ inputs.new_repo_name }} --internal || echo "Repo already exists"
+
+      # STEP 3: Fetch template and prepare the workspace
+      - name: Clone Template and Prepare
+        env:
+          GH_TOKEN: ${{ secrets.ORG_PAT }}
+        run: |
+          # Clone the design template
+          git clone https://${{ secrets.ORG_PAT }}@github.com/${{ inputs.template_repo }}.git template_source
+          # Create working directory and copy template files (excluding .git history)
+          mkdir target_repo
+          rsync -av --exclude='.git' template_source/ target_repo/
+          # Initialize git in the new folder and link it to the newly created repo
+          cd target_repo
+          git init
+          git remote add origin https://${{ secrets.ORG_PAT }}@github.com/${{ github.repository_owner }}/${{ inputs.new_repo_name }}.git
+
+      # STEP 4: Prepare Copilot Infrastructure on the Runner
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          
+      - name: Install Copilot CLI
+        run: npm install -g @github/copilot
+
+      # STEP 5: The AI Transformation (The Core)
+      # Copilot reads context from ../ (Step 1) and rewrites files in target_repo.
+      - name: Execute AI Transformation
+        env:
+          COPILOT_GITHUB_TOKEN: ${{ secrets.COPILOT_PAT }}
+        run: |
+          cd target_repo
+          copilot -p "${{ inputs.ai_prompt }} (Project Name: ${{ inputs.new_repo_name }})" \
+          --allow-tool=read --allow-tool=write --allow-tool='shell(*)' --no-ask-user
+
+      # STEP 6: Upload results to the new repo
+      - name: Commit and Push
+        run: |
+          cd target_repo
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add .
+          git commit -m "feat: AI generated landing page via Central Workflow"
+          git branch -M main
+          git push -u origin main
+
+      # STEP 7: Activate GitHub Pages, make Public, and update "About" sections
+      - name: Finalize Deployment and Update Metadata
+        env:
+          GH_TOKEN: ${{ secrets.ORG_PAT }}
+        run: |
+          # 1. Enable GitHub Pages for the new repo
+          # We wait a few seconds to ensure the push is fully processed by GitHub
+          sleep 5
+          gh api --method POST -H "Accept: application/vnd.github+json" \
+            /repos/${{ github.repository_owner }}/${{ inputs.new_repo_name }}/pages \
+            -f source[branch]="main" -f source[path]="/"
+
+          # 2. Change visibility to Public so the world can see the page
+          gh repo edit ${{ github.repository_owner }}/${{ inputs.new_repo_name }} --visibility public
+
+          # 3. Construct the Pages URL
+          # Format: https://orgname.github.io/reponame/
+          PAGES_URL="https://${{ github.repository_owner }}.github.io/${{ inputs.new_repo_name }}/"
+
+          # 4. Update the "About" section of the NEW Landing Page Repo
+          gh repo edit ${{ github.repository_owner }}/${{ inputs.new_repo_name }} \
+            --description "Landing page for $(basename ${{ github.repository }}) - AI Generated" \
+            --homepage "$PAGES_URL"
+
+          # 5. Update the "About" section of the CURRENT Source Repo
+          # This puts the link right where the developers are working
+          gh repo edit ${{ github.repository }} --homepage "$PAGES_URL"
+          
+          echo "Success: Landing page is live at $PAGES_URL"
