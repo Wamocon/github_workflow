@@ -1,96 +1,71 @@
 # =============================================================================
-# STEP 2 of 2 — Vercel Deploy (Preview + Production)
+# Deploy to Vercel — Manual Only
 # =============================================================================
 # COPY this file into your project as:
 #   .github/workflows/deploy.yml
 #
-# ─────────────────────────────────────────────────────────────────────────────
-# YOU NEED BOTH FILES:
-#   caller-pr-pipeline.yml      → .github/workflows/pr-pipeline.yml
-#   caller-production-deploy.yml → .github/workflows/deploy.yml   ← THIS FILE
-# ─────────────────────────────────────────────────────────────────────────────
+# WHAT THIS DOES:
+#   Manually deploy to Vercel from the GitHub Actions tab.
+#   Choose "production" (live URL) or "preview" (test URL) at run time.
+#   GitHub builds the project via Vercel CLI — Vercel never sees who pushed,
+#   so this works even with a personal Hobby Vercel account inside a private
+#   GitHub org (no team seat errors).
 #
-# WHAT THIS FILE DOES (single file, two behaviours):
-#   pull_request opened/updated → main or master
-#       → Vercel PREVIEW deployment  (unique URL per PR, uses Preview env vars)
-#   push / merge → main or master
-#       → Vercel PRODUCTION deployment  (live URL, uses Production env vars)
-#
-# ─────────────────────────────────────────────────────────────────────────────
 # SETUP — add ONE secret to your repo:
+#   Settings → Secrets and variables → Actions → New repository secret:
+#     VERCEL_PROJECT_ID → Vercel Dashboard → Project → Settings → Project ID
 #
-#   Settings → Secrets → Actions → New repository secret:
-#     VERCEL_PROJECT_ID  →  from Vercel Project → Settings → General → Project ID
+#   Everything else is already set once at the Wamocon organisation level:
+#     VERCEL_TOKEN   — personal Vercel access token
+#     VERCEL_ORG_ID  — your Vercel personal account ID
 #
-#   Everything else is already set at organisation level:
-#     VERCEL_TOKEN    (personal Vercel access token — works on Hobby plan)
-#     VERCEL_ORG_ID   (your Vercel personal account ID, not a team ID)
-#
-# ─────────────────────────────────────────────────────────────────────────────
-# HOBBY VERCEL + INTERNAL ORG NOTE:
-#   This workflow authenticates via the Vercel CLI using a personal token.
-#   It does NOT use the Vercel GitHub App or team integration — so it works
-#   with a personal Vercel Hobby account even if the GitHub repo is private
-#   or internal within an organisation.
-#
-# ─────────────────────────────────────────────────────────────────────────────
-# SCHEMA (optional):
-#   Leave db_schema empty → schema value is pulled from Vercel env vars.
-#   Only set db_schema if you need to override, e.g. "qa" or "live".
+# HOW TO DEPLOY:
+#   1. Go to your repo → Actions tab
+#   2. Select "Deploy to Vercel" in the left sidebar
+#   3. Click "Run workflow"
+#   4. Pick "production" or "preview" from the dropdown
+#   5. Click the green "Run workflow" button
 # =============================================================================
 
-name: Deploy — Preview & Production
+name: Deploy to Vercel
 
 on:
   workflow_dispatch:
-  push:
-    branches: [main, master]
-  pull_request:
-    branches: [main, master]
-    types: [opened, synchronize, reopened]
-
-# Cancel in-progress preview deploys when a new commit is pushed to the PR.
-# Never cancel an in-flight production deploy.
-concurrency:
-  group: deploy-${{ github.ref }}-${{ github.event_name }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+    inputs:
+      environment:
+        description: "Deploy target"
+        required: true
+        default: "production"
+        type: choice
+        options:
+          - production
+          - preview
 
 jobs:
-  # ─── Step 1: Resolve which environment and flags to use ─────────────────
-  #
-  #   pull_request  →  vercel_env=preview,     vercel_args=(empty)
-  #   push          →  vercel_env=production,  vercel_args=--prod
-  #
-  set-vars:
-    name: Resolve deployment variables
+  # ─── Step 1: Resolve which Vercel flags to use ────────────────────────────
+  resolve:
+    name: Resolve deployment vars
     runs-on: ubuntu-latest
     outputs:
-      vercel_env: ${{ steps.resolve.outputs.vercel_env }}
-      vercel_args: ${{ steps.resolve.outputs.vercel_args }}
+      vercel_args: ${{ steps.res.outputs.vercel_args }}
     steps:
-      - name: Resolve vercel_env and vercel_args
-        id: resolve
+      - name: Set Vercel args
+        id: res
         run: |
-          if [[ "${{ github.event_name }}" == "push" ]]; then
-            echo "vercel_env=production" >> $GITHUB_OUTPUT
+          if [ "${{ inputs.environment }}" = "production" ]; then
             echo "vercel_args=--prod" >> $GITHUB_OUTPUT
           else
-            echo "vercel_env=preview" >> $GITHUB_OUTPUT
             echo "vercel_args=" >> $GITHUB_OUTPUT
           fi
 
-  # ─── Step 2: Deploy via the shared Vercel CLI workflow ──────────────────
-  #
-  #   `secrets: inherit` passes VERCEL_TOKEN, VERCEL_ORG_ID (org level) and
-  #   VERCEL_PROJECT_ID (repo level) down to the reusable workflow automatically.
-  #
+  # ─── Step 2: Deploy via the shared Vercel CLI workflow ────────────────────
+  # `secrets: inherit` passes VERCEL_TOKEN and VERCEL_ORG_ID (org-level) and
+  # VERCEL_PROJECT_ID (repo-level) to the reusable workflow automatically.
   deploy:
-    name: ${{ github.event_name == 'push' && 'Deploy — Production' || 'Deploy — Preview' }}
-    needs: set-vars
+    name: Deploy — ${{ inputs.environment }}
+    needs: resolve
     uses: Wamocon/github_workflow/.github/workflows/deploy-preview.yml@main
     with:
-      vercel_env: ${{ needs.set-vars.outputs.vercel_env }}
-      vercel_args: ${{ needs.set-vars.outputs.vercel_args }}
-      # db_schema: ""      # leave empty — Vercel env vars control the schema
-      # db_schema: "qa"    # uncomment and set only for non-standard schema names
+      vercel_env: ${{ inputs.environment }}
+      vercel_args: ${{ needs.resolve.outputs.vercel_args }}
     secrets: inherit

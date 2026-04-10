@@ -27,11 +27,13 @@ jobs:
       contents: write
 
     steps:
-      # ── 1. Checkout the PR branch (full history for commit) ─────────────
+      # ── 1. Checkout the branch ───────────────────────────────────────────
+      # github.head_ref is only set on pull_request events.
+      # For push events (e.g. push to main), fall back to github.ref_name.
       - name: Checkout code
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.head_ref }}
+          ref: ${{ github.head_ref || github.ref_name }}
           token: ${{ secrets.GITHUB_TOKEN }}
 
       # ── 2. Setup Node.js with dependency caching ────────────────────────
@@ -62,9 +64,12 @@ jobs:
           fi
         continue-on-error: true
 
-      # ── 6. Commit & push fixed files back to the PR branch ─────────────
+      # ── 6. Commit & push fixed files back to the branch ───────────────
+      # [skip ci] prevents this commit from re-triggering this same workflow
+      # (avoids an infinite loop when autofix commits back to main).
+      # The action is a no-op if there are no changes to commit.
       - name: Commit auto-fixed changes
         uses: stefanzweifel/git-auto-commit-action@v5
         with:
-          commit_message: "style: auto-fix lint and formatting issues"
-          branch: ${{ github.head_ref }}
+          commit_message: "style: auto-fix lint and formatting issues [skip ci]"
+          branch: ${{ github.head_ref || github.ref_name }}

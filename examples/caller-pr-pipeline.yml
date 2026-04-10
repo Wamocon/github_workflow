@@ -1,56 +1,44 @@
 # =============================================================================
-# STEP 1 of 2 — PR Pipeline (Auto-Fix + Checks)
+# PR Pipeline — Auto-Fix + Checks
 # =============================================================================
 # COPY this file into your project as:
 #   .github/workflows/pr-pipeline.yml
 #
-# ─────────────────────────────────────────────────────────────────────────────
-# YOU NEED BOTH FILES:
-#   caller-pr-pipeline.yml       → .github/workflows/pr-pipeline.yml  ← THIS FILE
-#   caller-production-deploy.yml → .github/workflows/deploy.yml
-# ─────────────────────────────────────────────────────────────────────────────
-#
-# WHAT THIS FILE DOES:
-#   Every time a PR is opened or updated against main/master:
+# WHAT THIS DOES:
+#   Every time someone pushes to main/master (auto) OR you run it manually:
 #     1. Auto-Fix — runs ESLint --fix and Prettier (if installed),
-#        commits fixes back to the branch
+#        commits fixes back to the branch with [skip ci] to prevent loops.
 #     2. PR Checks — runs TypeScript type-check and ESLint
-#        (blocks merge on failure)
+#        (fails the run if there are errors after auto-fix).
 #
-#   This file does NOT deploy anything.
-#   Vercel preview + production deployments are in caller-production-deploy.yml.
-#
-# ─────────────────────────────────────────────────────────────────────────────
-# SETUP — no placeholders to replace.
-#
-#   The workflow already references Wamocon/github_workflow (the central repo).
-#   The only thing your project needs:
-#     - GITHUB_TOKEN is provided automatically by GitHub — no setup needed.
-#     - Your package.json must have a "lint" script and a "typecheck" script.
+# SETUP — no secrets needed, no placeholders to replace.
+#   GitHub provides GITHUB_TOKEN automatically.
+#   Your package.json must have:
+#     "lint"      — e.g.  "eslint ."
+#     "typecheck" — e.g.  "tsc --noEmit"
 # =============================================================================
 
 name: PR Pipeline
 
 on:
-  workflow_dispatch:
-  pull_request:
+  push:
     branches: [main, master]
-    types: [opened, synchronize, reopened]
+  workflow_dispatch:
 
-# Cancel redundant runs on the same PR when a new commit is pushed
+# Cancel any in-progress run for the same branch when a new push arrives.
 concurrency:
-  group: pr-${{ github.event.pull_request.number }}
+  group: pr-pipeline-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  # ─── Step 1: Auto-fix lint & format errors ───────────────────────────────
+  # ─── Step 1: Auto-fix lint & format errors ────────────────────────────────
   autofix:
     name: Auto-Fix
     uses: Wamocon/github_workflow/.github/workflows/pr-autofix.yml@main
     permissions:
       contents: write
 
-  # ─── Step 2: Validate code (typecheck + lint) ────────────────────────────────
+  # ─── Step 2: Validate code (typecheck + lint) ─────────────────────────────
   validate:
     name: PR Checks
     needs: autofix

@@ -1,32 +1,20 @@
 # =============================================================================
-# Vercel Production Deployment Workflow (Reusable)
+# DEPRECATED — use deploy-preview.yml instead
 # =============================================================================
-# Purpose : Deploys to the production domain using the PROD database schema.
-#           Includes both Next.js frontend and backend runtime code
-#           (API routes, route handlers, and server actions) in one deployment.
-# Trigger : Called by consumer repos via `workflow_call` when code is merged
-#           into the main/master branch.
-# Secrets : Requires VERCEL_TOKEN and VERCEL_PROJECT_ID.
-#           VERCEL_ORG_ID is expected at organisation level (secret or variable).
+# This file is kept for backwards compatibility only.
+# It forwards all calls to deploy-preview.yml with production settings.
+#
+# New projects should use deploy-preview.yml directly (it handles both
+# preview and production via inputs). See examples/caller-production-deploy.yml.
 # =============================================================================
 
-name: Deploy Production
+name: Deploy Production (deprecated wrapper)
 
 on:
   workflow_call:
     inputs:
-      node-version:
-        description: "Node.js version to use"
-        required: false
-        type: string
-        default: "20"
-      vercel-environment:
-        description: "Vercel environment to pull"
-        required: false
-        type: string
-        default: "production"
       db-schema:
-        description: "Optional NEXT_PUBLIC_DB_SCHEMA override (for custom schema names)"
+        description: "Optional NEXT_PUBLIC_DB_SCHEMA override"
         required: false
         type: string
         default: ""
@@ -39,50 +27,11 @@ on:
 jobs:
   deploy-production:
     name: Deploy Production to Vercel
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-
-    env:
+    uses: Wamocon/github_workflow/.github/workflows/deploy-preview.yml@main
+    with:
+      vercel_env: "production"
+      vercel_args: "--prod"
+      db_schema: ${{ inputs.db-schema }}
+    secrets:
       VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID || vars.VERCEL_ORG_ID }}
       VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
-
-    steps:
-      # ── 1. Checkout code ─────────────────────────────────────────────────
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      # ── 2. Setup Node.js ────────────────────────────────────────────────
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: ${{ inputs.node-version }}
-
-      # ── 3. Install Vercel CLI globally ──────────────────────────────────
-      - name: Install Vercel CLI
-        run: npm install -g vercel
-
-      # ── 4. Pull Vercel production environment ───────────────────────────
-      # This fetches environment variables including NEXT_PUBLIC_DB_SCHEMA=prod
-      - name: Pull Vercel environment (production)
-        run: vercel pull --yes --environment=${{ inputs.vercel-environment }} --token=$VERCEL_TOKEN
-
-      # ── 4.1 Optional schema override for repo-specific naming ───────────
-      - name: Apply optional DB schema override
-        if: ${{ inputs.db-schema != '' }}
-        run: |
-          echo "NEXT_PUBLIC_DB_SCHEMA=${{ inputs.db-schema }}" >> $GITHUB_ENV
-          echo "Using schema override: ${{ inputs.db-schema }}" >> $GITHUB_STEP_SUMMARY
-
-      # ── 5. Build frontend + backend runtime for production ──────────────
-      - name: Build frontend and backend (production)
-        run: vercel build --prod --token=$VERCEL_TOKEN
-
-      # ── 6. Deploy the pre-built output to production ────────────────────
-      - name: Deploy to Vercel (production)
-        id: deploy
-        run: |
-          PROD_URL=$(vercel deploy --prebuilt --prod --token=$VERCEL_TOKEN)
-          echo "production_url=$PROD_URL" >> $GITHUB_OUTPUT
-          echo "### 🚀 Production Deployment" >> $GITHUB_STEP_SUMMARY
-          echo "URL: $PROD_URL" >> $GITHUB_STEP_SUMMARY
