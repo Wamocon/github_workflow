@@ -130,49 +130,60 @@ jobs:
           PROD_FLAG=""
           [[ "${{ inputs.vercel_env }}" == "production" ]] && PROD_FLAG="--prod"
 
-          max_attempts=3
-          attempt=1
+          rm -f vercel-deploy.log
           deploy_ok=false
 
-          while [[ "$attempt" -le "$max_attempts" ]]; do
-            echo "Deploy attempt ${attempt}/${max_attempts}"
-            rm -f vercel-deploy.log
-
-            vercel deploy --prebuilt $PROD_FLAG --yes \
+          # Single attempt — this error is never transient, retrying wastes time.
+          # --debug gives full HTTP trace so the real error is visible in logs.
+          echo "Starting deploy..."
+          if vercel deploy --prebuilt $PROD_FLAG --yes --debug \
               --token=${{ secrets.VERCEL_TOKEN }} \
-              > vercel-deploy.log 2>&1 \
-              && deploy_ok=true && break
+              > vercel-deploy.log 2>&1; then
+            deploy_ok=true
+          fi
 
-            echo "Attempt ${attempt} failed. Tail of log:"
-            tail -10 vercel-deploy.log || true
-
-            # Don't retry auth/config errors — only transient infra errors
-            if grep -qiE 'unauthorized|403|forbidden|not found|no such project|invalid token' \
-                vercel-deploy.log 2>/dev/null; then
-              echo "::error::Non-retryable error — check VERCEL_ORG_ID, VERCEL_PROJECT_ID, and VERCEL_TOKEN"
-              break
-            fi
-
-            [[ "$attempt" -lt "$max_attempts" ]] && sleep 15
-            attempt=$((attempt + 1))
-          done
-
-          echo "--- Full deploy log ---"
+          echo ""
+          echo "══════════════════════════════════════════"
+          echo " FULL VERCEL DEPLOY LOG"
+          echo "══════════════════════════════════════════"
           cat vercel-deploy.log || true
+          echo "══════════════════════════════════════════"
+
+          # Extract Inspect URL so user can open the Vercel dashboard for real error
+          INSPECT_URL=$(grep -Eo 'https://vercel\.com/[^[:space:]]+' vercel-deploy.log \
+            | grep -v '\.vercel\.app' | head -n 1 || true)
+
+          if [[ -n "$INSPECT_URL" ]]; then
+            echo ""
+            echo "::notice::Vercel Inspect URL: $INSPECT_URL"
+            echo "Open that URL in your browser to see the real error from Vercel's dashboard."
+          fi
 
           if [[ "$deploy_ok" != "true" ]]; then
-            echo "### ❌ Deployment Failed" >> "$GITHUB_STEP_SUMMARY"
-            echo "" >> "$GITHUB_STEP_SUMMARY"
-            echo "**Tip:** Check the \`Show linked project config\` step above." >> "$GITHUB_STEP_SUMMARY"
-            echo "If \`orgId\` is a personal user ID but your project is under a team," >> "$GITHUB_STEP_SUMMARY"
-            echo "update \`VERCEL_ORG_ID\` to the team ID (starts with \`team_\`)." >> "$GITHUB_STEP_SUMMARY"
-            echo "\`\`\`" >> "$GITHUB_STEP_SUMMARY"
-            tail -20 vercel-deploy.log >> "$GITHUB_STEP_SUMMARY" 2>/dev/null || true
-            echo "\`\`\`" >> "$GITHUB_STEP_SUMMARY"
+            {
+              echo "### ❌ Deployment Failed"
+              echo ""
+              if [[ -n "$INSPECT_URL" ]]; then
+                echo "**[Open Vercel Inspect URL]($INSPECT_URL)** — this shows the real error."
+                echo ""
+              fi
+              echo "**Most common causes of \`Unexpected error. Please try again later. ()\`:**"
+              echo "1. **Wrong \`VERCEL_ORG_ID\`** — check the \`Show linked project config\` step. If the project is under a team, \`orgId\` must be the team ID (\`team_xxx\`), not your personal user ID (\`usr_xxx\`). Get it from: *vercel.com/\<team\>/settings → Team ID*"
+              echo "2. **Missing env variable at build time** — a required \`NEXT_PUBLIC_\` or build-time variable is not set in the Vercel project dashboard. Check *Project → Settings → Environment Variables*."
+              echo "3. **Vercel plan limit hit** — check *vercel.com/account/billing* for quota errors."
+              echo "4. **\`vercel.json\` or \`next.config.js\` uses a feature not available on your plan.**"
+              echo ""
+              echo "<details><summary>Last 30 lines of CLI output</summary>"
+              echo ""
+              echo "\`\`\`"
+              tail -30 vercel-deploy.log 2>/dev/null || true
+              echo "\`\`\`"
+              echo "</details>"
+            } >> "$GITHUB_STEP_SUMMARY"
             exit 1
           fi
 
-          # Parse URL — strip "Building..." which Vercel appends on same line via \r
+          # Parse deployment URL — strip "Building..." appended on same line via \r
           DEPLOY_URL=$(grep -Eo 'https://[^[:space:]]+\.vercel\.app' vercel-deploy.log \
             | sed 's/Building.*//' | grep -v '^$' | tail -n 1 || true)
 
@@ -182,7 +193,9 @@ jobs:
             echo "### ⚠️ Deployed (URL not parsed)" >> "$GITHUB_STEP_SUMMARY"
           else
             echo "deploy_url=$DEPLOY_URL" >> "$GITHUB_OUTPUT"
-            echo "### ✅ Deployed to Vercel" >> "$GITHUB_STEP_SUMMARY"
-            echo "**Environment:** ${{ inputs.vercel_env }}" >> "$GITHUB_STEP_SUMMARY"
-            echo "**URL:** $DEPLOY_URL" >> "$GITHUB_STEP_SUMMARY"
+            {
+              echo "### ✅ Deployed to Vercel"
+              echo "**Environment:** ${{ inputs.vercel_env }}"
+              echo "**URL:** $DEPLOY_URL"
+            } >> "$GITHUB_STEP_SUMMARY"
           fi
