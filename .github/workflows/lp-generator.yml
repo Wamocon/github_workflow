@@ -105,8 +105,35 @@ jobs:
       - name: Add Copilot CLI to PATH
         run: echo "/home/runner/.npm-global/bin" >> $GITHUB_PATH
 
+      # STEP 4b: Collect product context into target_repo so Copilot can read it directly.
+      # Copilot's --allow-tool=read is sandboxed to the working directory; it cannot
+      # traverse to the parent workspace. We pre-bake everything into PRODUCT_CONTEXT.md.
+      - name: Build Product Context
+        run: |
+          {
+            echo "# PRODUCT CONTEXT"
+            echo "Generated from: $GITHUB_REPOSITORY"
+            echo ""
+            # Primary source: README
+            if [ -f README.md ]; then
+              echo "## README.md"
+              cat README.md
+              echo ""
+            fi
+            # Any additional markdown docs (max 30 files, skip large ones)
+            while IFS= read -r f; do
+              size=$(wc -c < "$f")
+              if [ "$size" -lt 50000 ]; then
+                echo "## $f"
+                cat "$f"
+                echo ""
+              fi
+            done < <(find . -name "*.md" -not -path "./.git/*" -not -name "README.md" | head -30)
+          } > target_repo/PRODUCT_CONTEXT.md
+          echo "Context file size: $(wc -c < target_repo/PRODUCT_CONTEXT.md) bytes"
+
       # STEP 5: The AI Transformation (The Core)
-      # Copilot reads context from ../ (Step 1) and rewrites files in target_repo.
+      # Copilot is sandboxed to target_repo/ — all product info is in PRODUCT_CONTEXT.md.
       # Shell tool is intentionally NOT granted. Git operations are handled by Step 6.
       - name: Execute AI Transformation
         timeout-minutes: 60
@@ -114,7 +141,7 @@ jobs:
           COPILOT_GITHUB_TOKEN: ${{ secrets.COPILOT_PAT }}
         run: |
           cd target_repo
-          copilot -p "${{ inputs.ai_prompt }} (Project Name: ${{ steps.resolve_name.outputs.final_repo_name }}) IMPORTANT RULES: (1) Your job is ONLY to read and write files. Do NOT run any shell commands, git commands, or attempt to stage, commit, or push anything. A separate CI step handles all git operations after you finish. (2) When writing any file larger than 200 lines, you MUST split it into multiple write calls: write the first 150-200 lines, then append the next 150-200 lines, and so on. Never write more than 200 lines in a single write call. This is required to avoid internal size limits and make sure that at the end you will recheck whole file and if there is any bugs, you need to fix them" \
+          copilot -p "${{ inputs.ai_prompt }} (Project Name: ${{ steps.resolve_name.outputs.final_repo_name }}) MANDATORY STEPS — follow in order: (1) Read the file named PRODUCT_CONTEXT.md in the current directory. This contains the full README and all documentation for the product you are building the landing page for. You MUST understand the product before changing anything. (2) Rewrite the existing HTML, CSS, and JS template files to match this specific product — replace every piece of placeholder content with real product content derived from PRODUCT_CONTEXT.md. (3) Delete PRODUCT_CONTEXT.md once you have used it — it must not be committed. (4) Do NOT run any shell commands, git commands, or attempt to stage, commit, or push. A separate CI step handles all git operations. (5) When writing any file larger than 200 lines, split it into multiple write calls of at most 200 lines each (write first chunk, then append subsequent chunks). After finishing all writes, re-read each HTML file and fix any unclosed tags, broken references, or placeholder text that was not replaced." \
           --allow-tool=read --allow-tool=write --no-ask-user
 
       # STEP 6: Upload results to the new repo
@@ -152,7 +179,7 @@ jobs:
             -f source[branch]="main" -f source[path]="/"
 
           # 2. Change visibility to Public so the world can see the page
-          gh repo edit ${{ github.repository_owner }}/$FINAL_NAME --visibility public
+          gh repo edit ${{ github.repository_owner }}/$FINAL_NAME --visibility public --accept-visibility-change-consequences
 
           # 3. Construct the Pages URL
           # Format: https://orgname.github.io/reponame/
