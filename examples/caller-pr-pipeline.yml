@@ -5,13 +5,13 @@
 #   .github/workflows/pr-pipeline.yml
 #
 # WHAT THIS DOES:
-#   Every time someone pushes to main/master (auto) OR you run it manually:
+#   On every Pull Request targeting main/master (auto) OR when run manually:
 #     1. Auto-Fix — runs ESLint --fix and Prettier (if installed),
-#        commits fixes back to the branch with [skip ci] to prevent loops.
-#     2. PR Checks — runs TypeScript type-check and ESLint
-#        (fails the run if there are errors after auto-fix).
+#        commits fixes back to the PR branch.
+#     2. PR Checks — runs TypeScript type-check and ESLint.
+#        The PR is blocked from merging if checks fail.
 #
-# SETUP — no secrets needed, no placeholders to replace.
+# SETUP — no secrets needed.
 #   GitHub provides GITHUB_TOKEN automatically.
 #   Your package.json must have:
 #     "lint"      — e.g.  "eslint ."
@@ -21,13 +21,14 @@
 name: PR Pipeline
 
 on:
-  push:
+  pull_request:
     branches: [main, master]
+    types: [opened, synchronize, reopened]
   workflow_dispatch:
 
-# Cancel any in-progress run for the same branch when a new push arrives.
+# Cancel redundant runs on the same PR when a new commit is pushed.
 concurrency:
-  group: pr-pipeline-${{ github.ref }}
+  group: pr-pipeline-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:

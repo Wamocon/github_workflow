@@ -1,11 +1,54 @@
-name: Deploy to Vercel (Production)
+# =============================================================================
+# Deploy to Vercel — Caller Workflow
+# =============================================================================
+# COPY this file into your project as:
+#   .github/workflows/deploy.yml
+#
+# WHAT THIS DOES:
+#   Manual-only deployment to Vercel using the Vercel CLI.
+#   GitHub builds the project — Vercel never sees who triggered it, so there
+#   are no "team seat" errors even with a personal Hobby account in a GitHub org.
+#
+# SETUP — add ONE secret to your repo:
+#   Settings → Secrets and variables → Actions → New repository secret
+#     VERCEL_PROJECT_ID → Vercel Dashboard → Your Project → Settings → Project ID
+#
+#   Already set once at organisation level (nothing to do for these):
+#     VERCEL_TOKEN   — personal Vercel access token
+#     VERCEL_ORG_ID  — your Vercel personal account ID
+#
+# HOW TO DEPLOY:
+#   1. GitHub repo → Actions tab
+#   2. Select "Deploy to Vercel" in the left sidebar
+#   3. Click "Run workflow"
+#   4. Choose "production" or "preview" (and optionally a db_schema override)
+#   5. Click "Run workflow"
+# =============================================================================
+
+name: Deploy to Vercel
 
 on:
   workflow_dispatch:
+    inputs:
+      environment:
+        description: "Deploy target"
+        required: true
+        default: "production"
+        type: choice
+        options:
+          - production
+          - preview
+      db_schema:
+        description: "Optional NEXT_PUBLIC_DB_SCHEMA override (leave empty to use Vercel env vars)"
+        required: false
+        type: string
+        default: ""
 
 jobs:
   deploy:
-    uses: Wamocon/github_workflow/.github/workflows/deploy-preview.yml@main
+    name: Deploy — ${{ inputs.environment }}
+    uses: Wamocon/github_workflow/.github/workflows/deploy.yml@main
     with:
-      vercel_env: production
+      vercel_env: ${{ inputs.environment }}
+      db_schema: ${{ inputs.db_schema }}
     secrets: inherit
