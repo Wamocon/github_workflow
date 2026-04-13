@@ -35,13 +35,38 @@ jobs:
         with:
           fetch-depth: 0
 
+      # STEP 1b: Resolve the final repository name
+      # If new_repo_name is the default sentinel "generated_lp", replace it with
+      # <caller-repo>_lp. If the resolved name already exists, append _v2, _v3, …
+      - name: Resolve repo name
+        id: resolve_name
+        env:
+          GH_TOKEN: ${{ secrets.ORG_PAT }}
+        run: |
+          if [[ "${{ inputs.new_repo_name }}" == "generated_lp" ]]; then
+            CALLER_NAME="${GITHUB_REPOSITORY##*/}"
+            BASE_NAME="${CALLER_NAME}_lp"
+          else
+            BASE_NAME="${{ inputs.new_repo_name }}"
+          fi
+
+          FINAL_NAME="$BASE_NAME"
+          VERSION=2
+          while gh repo view "${{ github.repository_owner }}/$FINAL_NAME" --json name > /dev/null 2>&1; do
+            FINAL_NAME="${BASE_NAME}_v${VERSION}"
+            VERSION=$((VERSION + 1))
+          done
+
+          echo "Resolved repo name: $FINAL_NAME"
+          echo "final_repo_name=$FINAL_NAME" >> "$GITHUB_OUTPUT"
+
       # STEP 2: Create the new target repository in the Organization
       # Using GitHub CLI (gh). The --internal flag ensures it stays within the Org.
       - name: Create Target Repo
         env:
           GH_TOKEN: ${{ secrets.ORG_PAT }}
         run: |
-          gh repo create ${{ github.repository_owner }}/${{ inputs.new_repo_name }} --internal || echo "Repo already exists"
+          gh repo create ${{ github.repository_owner }}/${{ steps.resolve_name.outputs.final_repo_name }} --internal
 
       # STEP 3: Fetch template and prepare the workspace
       - name: Clone Template and Prepare
@@ -56,7 +81,7 @@ jobs:
           # Initialize git in the new folder and link it to the newly created repo
           cd target_repo
           git init
-          git remote add origin https://${{ secrets.ORG_PAT }}@github.com/${{ github.repository_owner }}/${{ inputs.new_repo_name }}.git
+          git remote add origin https://${{ secrets.ORG_PAT }}@github.com/${{ github.repository_owner }}/${{ steps.resolve_name.outputs.final_repo_name }}.git
 
       # STEP 4: Prepare Copilot Infrastructure on the Runner
       - name: Setup Node
@@ -74,7 +99,7 @@ jobs:
           COPILOT_GITHUB_TOKEN: ${{ secrets.COPILOT_PAT }}
         run: |
           cd target_repo
-          copilot -p "${{ inputs.ai_prompt }} (Project Name: ${{ inputs.new_repo_name }})" \
+          copilot -p "${{ inputs.ai_prompt }} (Project Name: ${{ steps.resolve_name.outputs.final_repo_name }})" \
           --allow-tool=read --allow-tool=write --allow-tool='shell(*)' --no-ask-user
 
       # STEP 6: Upload results to the new repo
@@ -96,24 +121,26 @@ jobs:
           # 1. Enable GitHub Pages for the new repo
           # We wait a few seconds to ensure the push is fully processed by GitHub
           sleep 5
+          FINAL_NAME="${{ steps.resolve_name.outputs.final_repo_name }}"
+
           gh api --method POST -H "Accept: application/vnd.github+json" \
-            /repos/${{ github.repository_owner }}/${{ inputs.new_repo_name }}/pages \
+            /repos/${{ github.repository_owner }}/$FINAL_NAME/pages \
             -f source[branch]="main" -f source[path]="/"
 
           # 2. Change visibility to Public so the world can see the page
-          gh repo edit ${{ github.repository_owner }}/${{ inputs.new_repo_name }} --visibility public
+          gh repo edit ${{ github.repository_owner }}/$FINAL_NAME --visibility public
 
           # 3. Construct the Pages URL
           # Format: https://orgname.github.io/reponame/
-          PAGES_URL="https://${{ github.repository_owner }}.github.io/${{ inputs.new_repo_name }}/"
+          PAGES_URL="https://${{ github.repository_owner }}.github.io/$FINAL_NAME/"
 
           # 4. Update the "About" section of the NEW Landing Page Repo
-          gh repo edit ${{ github.repository_owner }}/${{ inputs.new_repo_name }} \
-            --description "Landing page for $(basename ${{ github.repository }}) - AI Generated" \
+          gh repo edit ${{ github.repository_owner }}/$FINAL_NAME \
+            --description "Landing page for $FINAL_NAME - AI Generated" \
             --homepage "$PAGES_URL"
 
           # 5. Update the "About" section of the CURRENT Source Repo
           # This puts the link right where the developers are working
           gh repo edit ${{ github.repository }} --homepage "$PAGES_URL"
           
-          echo "Success: Landing page is live at $PAGES_URL"
+          echo "Success: Landing page '$FINAL_NAME' is live at $PAGES_URL"
