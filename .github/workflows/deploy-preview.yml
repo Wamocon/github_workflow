@@ -133,7 +133,7 @@ jobs:
           while [[ "$attempt" -le "$max_attempts" ]]; do
             echo "Starting Vercel deploy attempt ${attempt}/${max_attempts}"
 
-            if vercel deploy --prebuilt ${{ steps.resolve_args.outputs.vercel_args }} --yes --token=${{ secrets.VERCEL_TOKEN }} 2>&1 | tee -a vercel-deploy.log; then
+            if vercel deploy --prebuilt ${{ steps.resolve_args.outputs.vercel_args }} --no-wait --yes --token=${{ secrets.VERCEL_TOKEN }} 2>&1 | tee -a vercel-deploy.log; then
               deploy_ok=true
               break
             fi
@@ -153,16 +153,46 @@ jobs:
             exit 1
           fi
 
-          DEPLOY_URL=$(grep -E '^(Production|Preview): https?://' vercel-deploy.log | tail -n 1 | sed -E 's/^(Production|Preview):[[:space:]]*([^[:space:]]+).*$/\2/' || true)
+          sed -E 's/Building\.\.\..*$//' vercel-deploy.log > vercel-deploy-clean.log
+
+          DEPLOY_URL=$(grep -E '^(Production|Preview): https?://' vercel-deploy-clean.log | tail -n 1 | sed -E 's/^(Production|Preview):[[:space:]]*([^[:space:]]+).*$/\2/' || true)
 
           if [[ -z "$DEPLOY_URL" ]]; then
-            DEPLOY_URL=$(grep -Eo 'https?://[^[:space:]]+' vercel-deploy.log | grep -E 'vercel\.app' | tail -n 1 || true)
+            DEPLOY_URL=$(grep -Eo 'https?://[^[:space:]]+' vercel-deploy-clean.log | grep -E 'vercel\.app' | tail -n 1 || true)
           fi
 
           if [[ -z "$DEPLOY_URL" ]]; then
             echo "Could not extract deployment URL from Vercel CLI output." >&2
             echo "### Deployment Failed" >> "$GITHUB_STEP_SUMMARY"
             echo "Deployment finished but URL parsing failed. Check logs." >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+
+          echo "Waiting for deployment URL to become reachable..."
+          health_ok=false
+          for i in {1..30}; do
+            status_code=$(curl -sS -o /dev/null -w "%{http_code}" "$DEPLOY_URL" || true)
+
+            if [[ "$status_code" =~ ^(2[0-9][0-9]|3[0-9][0-9]|401|403)$ ]]; then
+              echo "Deployment reachable with HTTP $status_code"
+              health_ok=true
+              break
+            fi
+
+            if [[ "$status_code" == "404" || "$status_code" == "000" || "$status_code" =~ ^5 ]]; then
+              echo "Attempt ${i}/30: HTTP $status_code, waiting 10s..."
+              sleep 10
+              continue
+            fi
+
+            echo "Attempt ${i}/30: HTTP $status_code (continuing to wait)"
+            sleep 10
+          done
+
+          if [[ "$health_ok" != "true" ]]; then
+            echo "### Deployment Failed" >> "$GITHUB_STEP_SUMMARY"
+            echo "Deployment URL did not become reachable in time." >> "$GITHUB_STEP_SUMMARY"
+            echo "URL: $DEPLOY_URL" >> "$GITHUB_STEP_SUMMARY"
             exit 1
           fi
 
