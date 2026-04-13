@@ -1,17 +1,21 @@
 # =============================================================================
 # Vercel Deployment Workflow (Reusable)
 # =============================================================================
-# Purpose : Unified Vercel CLI deployment workflow called by consumer repos.
-#           Authenticates via a personal token, bypassing Vercel Hobby plan
-#           team restrictions on private repositories.
+# Usage   : Pass only vercel_env = "preview" or "production"
+# Secrets : VERCEL_TOKEN (org), VERCEL_ORG_ID (org), VERCEL_PROJECT_ID (repo)
 #
-#           The caller only needs to pass:
-#             vercel_env → "preview" or "production"
-#           Everything else is handled automatically.
+# ─── How to get the correct secret values ────────────────────────────────────
 #
-# Secrets (pass via `secrets: inherit`):
-#   Org-level  : VERCEL_TOKEN, VERCEL_ORG_ID
-#   Repo-level : VERCEL_PROJECT_ID  (in the caller's repo, NOT this central repo)
+# VERCEL_TOKEN
+#   vercel.com → Account Settings → Tokens → Create token (Full Access)
+#
+# VERCEL_ORG_ID  ← most common source of the "Unexpected error" bug
+#   Personal account : vercel.com/account → Settings → "Your ID"  (e.g. usr_xxx)
+#   Team account     : vercel.com/<team>/settings → "Team ID"     (e.g. team_xxx)
+#   ⚠ Use the TEAM ID if your project URL is vercel.com/<team>/<project>
+#
+# VERCEL_PROJECT_ID  (set per repo, NOT in this central repo)
+#   vercel.com → select project → Settings → General → "Project ID"
 # =============================================================================
 
 name: Vercel Deploy
@@ -41,115 +45,144 @@ jobs:
     name: Deploy to Vercel (${{ inputs.vercel_env }})
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    # Set at job level so every step inherits without repetition
+    env:
+      CI: "1"
+      FORCE_COLOR: "0"
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
 
     steps:
-      # ── 1. Checkout code ─────────────────────────────────────────────────
+      # ── 1. Checkout ───────────────────────────────────────────────────────
       - name: Checkout code
         uses: actions/checkout@v4
 
-      # ── 2. Setup Node.js ─────────────────────────────────────────────────
+      # ── 2. Node.js ────────────────────────────────────────────────────────
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: "20"
 
-      # ── 3. Validate secrets ──────────────────────────────────────────────
-      - name: Validate Vercel configuration
+      # ── 3. Validate secrets ───────────────────────────────────────────────
+      - name: Validate Vercel secrets
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
-          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
         run: |
           missing=""
-          [[ -z "$VERCEL_TOKEN" ]] && missing="$missing VERCEL_TOKEN(org secret)"
-          [[ -z "$VERCEL_PROJECT_ID" ]] && missing="$missing VERCEL_PROJECT_ID(repo secret)"
-          [[ -z "$VERCEL_ORG_ID" ]] && missing="$missing VERCEL_ORG_ID(org secret)"
+          [[ -z "$VERCEL_TOKEN" ]]      && missing="$missing  • VERCEL_TOKEN (org secret)"
+          [[ -z "$VERCEL_PROJECT_ID" ]] && missing="$missing  • VERCEL_PROJECT_ID (repo secret)"
+          [[ -z "$VERCEL_ORG_ID" ]]     && missing="$missing  • VERCEL_ORG_ID (org secret)"
           if [[ -n "$missing" ]]; then
-            echo "::error::Missing required secrets:$missing"
+            echo "::error::Missing required secrets:"
+            echo "$missing"
             exit 1
           fi
           echo "All Vercel secrets present."
 
-      # ── 4. Install Vercel CLI (pinned for stability) ─────────────────────
+      # ── 4. Install Vercel CLI ─────────────────────────────────────────────
       - name: Install Vercel CLI
-        run: npm install --global vercel@canary
+        run: npm install --global vercel@latest
 
-      # ── 5. Link project & pull env vars ──────────────────────────────────
+      # ── 5. Pull project config + env vars ────────────────────────────────
       - name: Pull Vercel environment
-        env:
-          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
-          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
-        run: vercel pull --yes --environment=${{ inputs.vercel_env }} --token=${{ secrets.VERCEL_TOKEN }}
+        run: |
+          vercel pull --yes \
+            --environment=${{ inputs.vercel_env }} \
+            --token=${{ secrets.VERCEL_TOKEN }}
 
-      # ── 5.1 Optional schema override ─────────────────────────────────────
+      # ── 5a. Diagnose linked project (helps catch wrong VERCEL_ORG_ID) ────
+      # Prints orgId and projectId that were resolved — no secrets exposed.
+      # If orgId does NOT match the owner of the project, that is your bug:
+      #   personal project → orgId looks like a user ID
+      #   team project     → orgId must start with "team_"
+      - name: Show linked project config
+        run: |
+          echo "--- Vercel CLI version ---"
+          vercel --version
+          echo ""
+          echo "--- Resolved project link (.vercel/project.json) ---"
+          cat .vercel/project.json
+          echo ""
+
+      # ── 5b. Optional schema override ─────────────────────────────────────
       - name: Apply DB schema override
         if: inputs.db_schema != ''
-        run: |
-          echo "NEXT_PUBLIC_DB_SCHEMA=${{ inputs.db_schema }}" >> "$GITHUB_ENV"
-          echo "Schema override applied: ${{ inputs.db_schema }}" >> "$GITHUB_STEP_SUMMARY"
+        run: echo "NEXT_PUBLIC_DB_SCHEMA=${{ inputs.db_schema }}" >> "$GITHUB_ENV"
 
-      # ── 6. Deploy (Vercel builds remotely — avoids prebuilt backend errors)
+      # ── 6. Build ──────────────────────────────────────────────────────────
+      # Runs the framework build locally so Vercel only needs to route artifacts.
+      # This avoids the "Unexpected error" that occurs when Vercel's remote
+      # builder receives a source-only upload for certain project configurations.
+      - name: Build project
+        run: |
+          if [[ "${{ inputs.vercel_env }}" == "production" ]]; then
+            vercel build --prod --token=${{ secrets.VERCEL_TOKEN }}
+          else
+            vercel build --token=${{ secrets.VERCEL_TOKEN }}
+          fi
+
+      # ── 7. Deploy prebuilt artifacts ──────────────────────────────────────
       - name: Deploy to Vercel
         id: deploy
-        env:
-          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
-          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
         run: |
           set -euo pipefail
 
-          # Resolve --prod flag automatically
           PROD_FLAG=""
-          if [[ "${{ inputs.vercel_env }}" == "production" ]]; then
-            PROD_FLAG="--prod"
-          fi
+          [[ "${{ inputs.vercel_env }}" == "production" ]] && PROD_FLAG="--prod"
 
-          rm -f vercel-deploy.log
           max_attempts=3
           attempt=1
           deploy_ok=false
 
           while [[ "$attempt" -le "$max_attempts" ]]; do
-            echo "::group::Deploy attempt ${attempt}/${max_attempts}"
+            echo "Deploy attempt ${attempt}/${max_attempts}"
+            rm -f vercel-deploy.log
 
-            if vercel deploy $PROD_FLAG --yes --token=${{ secrets.VERCEL_TOKEN }} 2>&1 | tee vercel-deploy.log; then
-              deploy_ok=true
-              echo "::endgroup::"
+            vercel deploy --prebuilt $PROD_FLAG --yes \
+              --token=${{ secrets.VERCEL_TOKEN }} \
+              > vercel-deploy.log 2>&1 \
+              && deploy_ok=true && break
+
+            echo "Attempt ${attempt} failed. Tail of log:"
+            tail -10 vercel-deploy.log || true
+
+            # Don't retry auth/config errors — only transient infra errors
+            if grep -qiE 'unauthorized|403|forbidden|not found|no such project|invalid token' \
+                vercel-deploy.log 2>/dev/null; then
+              echo "::error::Non-retryable error — check VERCEL_ORG_ID, VERCEL_PROJECT_ID, and VERCEL_TOKEN"
               break
             fi
 
-            echo "::endgroup::"
-
-            if [[ "$attempt" -lt "$max_attempts" ]]; then
-              echo "::warning::Deploy attempt ${attempt} failed. Retrying in 15s..."
-              sleep 15
-            fi
-
+            [[ "$attempt" -lt "$max_attempts" ]] && sleep 15
             attempt=$((attempt + 1))
           done
 
+          echo "--- Full deploy log ---"
+          cat vercel-deploy.log || true
+
           if [[ "$deploy_ok" != "true" ]]; then
             echo "### ❌ Deployment Failed" >> "$GITHUB_STEP_SUMMARY"
-            echo "Vercel CLI failed after ${max_attempts} attempts." >> "$GITHUB_STEP_SUMMARY"
-            echo '```' >> "$GITHUB_STEP_SUMMARY"
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo "**Tip:** Check the \`Show linked project config\` step above." >> "$GITHUB_STEP_SUMMARY"
+            echo "If \`orgId\` is a personal user ID but your project is under a team," >> "$GITHUB_STEP_SUMMARY"
+            echo "update \`VERCEL_ORG_ID\` to the team ID (starts with \`team_\`)." >> "$GITHUB_STEP_SUMMARY"
+            echo "\`\`\`" >> "$GITHUB_STEP_SUMMARY"
             tail -20 vercel-deploy.log >> "$GITHUB_STEP_SUMMARY" 2>/dev/null || true
-            echo '```' >> "$GITHUB_STEP_SUMMARY"
+            echo "\`\`\`" >> "$GITHUB_STEP_SUMMARY"
             exit 1
           fi
 
-          # Extract deployment URL from CLI output
-          # Clean any "Building..." text appended without newline
-          sed -E 's/Building\.\.\..*$//' vercel-deploy.log > vercel-deploy-clean.log
-
-          DEPLOY_URL=$(grep -Eo 'https://[^[:space:]]+\.vercel\.app' vercel-deploy-clean.log | tail -n 1 || true)
+          # Parse URL — strip "Building..." which Vercel appends on same line via \r
+          DEPLOY_URL=$(grep -Eo 'https://[^[:space:]]+\.vercel\.app' vercel-deploy.log \
+            | sed 's/Building.*//' | grep -v '^$' | tail -n 1 || true)
 
           if [[ -z "$DEPLOY_URL" ]]; then
-            echo "::warning::Could not parse deployment URL from output"
+            echo "::warning::Deployed successfully but could not parse URL — check Vercel dashboard"
             echo "deploy_url=unknown" >> "$GITHUB_OUTPUT"
-            echo "### ⚠️ Deployed but URL not parsed" >> "$GITHUB_STEP_SUMMARY"
-            echo "Check the Vercel dashboard for the deployment URL." >> "$GITHUB_STEP_SUMMARY"
+            echo "### ⚠️ Deployed (URL not parsed)" >> "$GITHUB_STEP_SUMMARY"
           else
             echo "deploy_url=$DEPLOY_URL" >> "$GITHUB_OUTPUT"
-            echo "### ✅ Deployment Successful" >> "$GITHUB_STEP_SUMMARY"
+            echo "### ✅ Deployed to Vercel" >> "$GITHUB_STEP_SUMMARY"
             echo "**Environment:** ${{ inputs.vercel_env }}" >> "$GITHUB_STEP_SUMMARY"
             echo "**URL:** $DEPLOY_URL" >> "$GITHUB_STEP_SUMMARY"
           fi
