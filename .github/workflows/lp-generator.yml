@@ -109,12 +109,12 @@ jobs:
       # Copilot reads context from ../ (Step 1) and rewrites files in target_repo.
       # Shell tool is intentionally NOT granted. Git operations are handled by Step 6.
       - name: Execute AI Transformation
-        timeout-minutes: 15
+        timeout-minutes: 60
         env:
           COPILOT_GITHUB_TOKEN: ${{ secrets.COPILOT_PAT }}
         run: |
           cd target_repo
-          copilot -p "${{ inputs.ai_prompt }} (Project Name: ${{ steps.resolve_name.outputs.final_repo_name }}) IMPORTANT: Your job is ONLY to read and write files. Do NOT run any shell commands, git commands, or attempt to stage, commit, or push anything. A separate CI step handles all git operations after you finish." \
+          copilot -p "${{ inputs.ai_prompt }} (Project Name: ${{ steps.resolve_name.outputs.final_repo_name }}) IMPORTANT RULES: (1) Your job is ONLY to read and write files. Do NOT run any shell commands, git commands, or attempt to stage, commit, or push anything. A separate CI step handles all git operations after you finish. (2) When writing any file larger than 200 lines, you MUST split it into multiple write calls: write the first 150-200 lines, then append the next 150-200 lines, and so on. Never write more than 200 lines in a single write call. This is required to avoid internal size limits and make sure that at the end you will recheck whole file and if there is any bugs, you need to fix them" \
           --allow-tool=read --allow-tool=write --no-ask-user
 
       # STEP 6: Upload results to the new repo
