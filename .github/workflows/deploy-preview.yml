@@ -7,7 +7,6 @@
 #
 #           The caller decides the deployment target by passing:
 #             vercel_env  → "preview" or "production"
-#             vercel_args → "" (preview) or "--prod" (production)
 #             db_schema   → optional NEXT_PUBLIC_DB_SCHEMA override.
 #                           Leave empty to use the value already set in the
 #                           Vercel environment (recommended for most projects).
@@ -26,11 +25,6 @@ on:
         description: "Vercel environment to pull ('preview' or 'production')"
         required: true
         type: string
-      vercel_args:
-        description: "Extra args for vercel build/deploy ('' or '--prod')"
-        required: false
-        type: string
-        default: ""
       db_schema:
         description: "Optional NEXT_PUBLIC_DB_SCHEMA override. Leave empty to use the value from Vercel environment variables."
         required: false
@@ -42,7 +36,7 @@ on:
       VERCEL_PROJECT_ID:
         required: true
       VERCEL_ORG_ID:
-        required: false
+        required: true
 
 jobs:
   deploy:
@@ -67,7 +61,7 @@ jobs:
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
           VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
-          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID || vars.VERCEL_ORG_ID }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
         run: |
           if [[ -z "$VERCEL_TOKEN" ]]; then
             echo "Missing VERCEL_TOKEN. Configure it at organisation secrets." >&2
@@ -93,9 +87,18 @@ jobs:
       # This includes NEXT_PUBLIC_DB_SCHEMA if configured in Vercel Dashboard.
       - name: Pull Vercel environment
         env:
-          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID || vars.VERCEL_ORG_ID }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
           VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
         run: vercel pull --yes --environment=${{ inputs.vercel_env }} --token=${{ secrets.VERCEL_TOKEN }}
+
+      - name: Resolve deploy args
+        id: resolve_args
+        run: |
+          if [[ "${{ inputs.vercel_env }}" == "production" ]]; then
+            echo "vercel_args=--prod" >> "$GITHUB_OUTPUT"
+          else
+            echo "vercel_args=" >> "$GITHUB_OUTPUT"
+          fi
 
       # ── 4.1 Optional schema override ─────────────────────────────────────
       # Only runs if the caller explicitly passes a db_schema input.
@@ -109,18 +112,60 @@ jobs:
       # ── 5. Build project ──────────────────────────────────────────────────
       - name: Build project
         env:
-          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID || vars.VERCEL_ORG_ID }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
           VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
-        run: vercel build ${{ inputs.vercel_args }} --token=${{ secrets.VERCEL_TOKEN }}
+        run: vercel build ${{ steps.resolve_args.outputs.vercel_args }} --token=${{ secrets.VERCEL_TOKEN }}
 
       # ── 6. Deploy to Vercel ───────────────────────────────────────────────
       - name: Deploy to Vercel
         id: deploy
         env:
-          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID || vars.VERCEL_ORG_ID }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
           VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
         run: |
-          DEPLOY_URL=$(vercel deploy --prebuilt ${{ inputs.vercel_args }} --token=${{ secrets.VERCEL_TOKEN }})
-          echo "deploy_url=$DEPLOY_URL" >> $GITHUB_OUTPUT
-          echo "### Deployment" >> $GITHUB_STEP_SUMMARY
-          echo "URL: $DEPLOY_URL" >> $GITHUB_STEP_SUMMARY
+          set -euo pipefail
+
+          rm -f vercel-deploy.log
+          max_attempts=3
+          attempt=1
+          deploy_ok=false
+
+          while [[ "$attempt" -le "$max_attempts" ]]; do
+            echo "Starting Vercel deploy attempt ${attempt}/${max_attempts}"
+
+            if vercel deploy --prebuilt ${{ steps.resolve_args.outputs.vercel_args }} --yes --token=${{ secrets.VERCEL_TOKEN }} 2>&1 | tee -a vercel-deploy.log; then
+              deploy_ok=true
+              break
+            fi
+
+            if [[ "$attempt" -lt "$max_attempts" ]]; then
+              echo "Deploy attempt ${attempt} failed. Retrying in 10 seconds..."
+              sleep 10
+            fi
+
+            attempt=$((attempt + 1))
+          done
+
+          if [[ "$deploy_ok" != "true" ]]; then
+            echo "### Deployment Failed" >> "$GITHUB_STEP_SUMMARY"
+            echo "Vercel CLI returned a non-zero exit code after ${max_attempts} attempts." >> "$GITHUB_STEP_SUMMARY"
+            echo "Check the deploy logs in this job for the full error details." >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+
+          DEPLOY_URL=$(grep -E '^(Production|Preview): https?://' vercel-deploy.log | tail -n 1 | sed -E 's/^(Production|Preview):[[:space:]]*([^[:space:]]+).*$/\2/' || true)
+
+          if [[ -z "$DEPLOY_URL" ]]; then
+            DEPLOY_URL=$(grep -Eo 'https?://[^[:space:]]+' vercel-deploy.log | grep -E 'vercel\.app' | tail -n 1 || true)
+          fi
+
+          if [[ -z "$DEPLOY_URL" ]]; then
+            echo "Could not extract deployment URL from Vercel CLI output." >&2
+            echo "### Deployment Failed" >> "$GITHUB_STEP_SUMMARY"
+            echo "Deployment finished but URL parsing failed. Check logs." >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+
+          echo "deploy_url=$DEPLOY_URL" >> "$GITHUB_OUTPUT"
+          echo "### Deployment" >> "$GITHUB_STEP_SUMMARY"
+          echo "URL: $DEPLOY_URL" >> "$GITHUB_STEP_SUMMARY"
