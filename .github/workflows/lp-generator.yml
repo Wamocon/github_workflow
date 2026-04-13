@@ -33,7 +33,7 @@ jobs:
       - name: Checkout Project Source
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0
+          fetch-depth: 1  # Only latest commit needed; full history is not used
 
       # STEP 1b: Resolve the final repository name
       # If new_repo_name is the default sentinel "generated_lp", replace it with
@@ -73,11 +73,11 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.ORG_PAT }}
         run: |
-          # Clone the design template
-          git clone https://${{ secrets.ORG_PAT }}@github.com/${{ inputs.template_repo }}.git template_source
+          # Clone only the latest snapshot of the template (no history needed)
+          git clone --depth 1 https://${{ secrets.ORG_PAT }}@github.com/${{ inputs.template_repo }}.git template_source
           # Create working directory and copy template files (excluding .git history)
           mkdir target_repo
-          rsync -av --exclude='.git' template_source/ target_repo/
+          rsync -a --exclude='.git' template_source/ target_repo/
           # Initialize git in the new folder and link it to the newly created repo
           cd target_repo
           git init
@@ -88,19 +88,34 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: "20"
-          
+
+      - name: Cache Copilot CLI
+        id: cache-copilot
+        uses: actions/cache@v4
+        with:
+          path: /home/runner/.npm-global
+          key: copilot-cli-${{ runner.os }}-v1
+
       - name: Install Copilot CLI
-        run: npm install -g @github/copilot
+        if: steps.cache-copilot.outputs.cache-hit != 'true'
+        run: |
+          npm config set prefix /home/runner/.npm-global
+          npm install -g @github/copilot
+
+      - name: Add Copilot CLI to PATH
+        run: echo "/home/runner/.npm-global/bin" >> $GITHUB_PATH
 
       # STEP 5: The AI Transformation (The Core)
       # Copilot reads context from ../ (Step 1) and rewrites files in target_repo.
+      # Shell tool is intentionally NOT granted. Git operations are handled by Step 6.
       - name: Execute AI Transformation
+        timeout-minutes: 15
         env:
           COPILOT_GITHUB_TOKEN: ${{ secrets.COPILOT_PAT }}
         run: |
           cd target_repo
-          copilot -p "${{ inputs.ai_prompt }} (Project Name: ${{ steps.resolve_name.outputs.final_repo_name }})" \
-          --allow-tool=read --allow-tool=write --allow-tool='shell(*)' --no-ask-user
+          copilot -p "${{ inputs.ai_prompt }} (Project Name: ${{ steps.resolve_name.outputs.final_repo_name }}) IMPORTANT: Your job is ONLY to read and write files. Do NOT run any shell commands, git commands, or attempt to stage, commit, or push anything. A separate CI step handles all git operations after you finish." \
+          --allow-tool=read --allow-tool=write --no-ask-user
 
       # STEP 6: Upload results to the new repo
       - name: Commit and Push
@@ -118,10 +133,19 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.ORG_PAT }}
         run: |
-          # 1. Enable GitHub Pages for the new repo
-          # We wait a few seconds to ensure the push is fully processed by GitHub
-          sleep 5
           FINAL_NAME="${{ steps.resolve_name.outputs.final_repo_name }}"
+
+          # Wait until GitHub confirms the push exists (poll instead of fixed sleep)
+          echo "Waiting for push to be visible on GitHub..."
+          for i in $(seq 1 12); do
+            REF=$(gh api /repos/${{ github.repository_owner }}/$FINAL_NAME/git/refs/heads/main --jq '.ref' 2>/dev/null || echo "")
+            if [[ -n "$REF" ]]; then
+              echo "Push confirmed after $((i * 5))s"
+              break
+            fi
+            echo "  attempt $i/12 – not ready yet, retrying in 5s..."
+            sleep 5
+          done
 
           gh api --method POST -H "Accept: application/vnd.github+json" \
             /repos/${{ github.repository_owner }}/$FINAL_NAME/pages \
