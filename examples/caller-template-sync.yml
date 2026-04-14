@@ -11,5 +11,5 @@ jobs:
     uses: Wamocon/github_workflow/.github/workflows/template-sync.yml@main
     with:
       # Passe den Namen an, falls dein Template anders heißt
-      source_repo: "Wamocon/temp-1"
+      source_repo: "Wamocon/template_repo"
     secrets: inherit
