@@ -28,6 +28,27 @@ jobs:
   generate-lp:
     runs-on: ubuntu-latest
     steps:
+      - name: Validate Secrets and Token Expiration
+        env:
+          ORG_PAT: ${{ secrets.ORG_PAT }}
+          COPILOT_PAT: ${{ secrets.COPILOT_PAT }}
+        run: |
+          if [ -z "$ORG_PAT" ]; then
+            echo "Fehler: ORG_PAT Secret fehlt oder ist leer. Uebergabe im Caller-Workflow pruefen."
+            exit 1
+          fi
+          
+          if [ -z "$COPILOT_PAT" ]; then
+            echo "Fehler: COPILOT_PAT Secret fehlt oder ist leer. Uebergabe im Caller-Workflow pruefen."
+            exit 1
+          fi
+          
+          if ! GH_TOKEN=$ORG_PAT gh api user > /dev/null 2>&1; then
+            echo "Fehler: ORG_PAT ist ungueltig, abgelaufen oder hat keine API-Rechte."
+            exit 1
+          fi
+          
+          echo "Validierung erfolgreich. Token sind vorhanden und gueltig."
       # STEP 1: Checkout the current project source
       # We need the README.md and code here so Copilot understands the product context.
       - name: Checkout Project Source
@@ -228,6 +249,7 @@ jobs:
           copilot -p "$PROMPT" --allow-tool=read --allow-tool=write --no-ask-user
 
       # STEP 6: Upload results to the new repo
+      # STEP 6: Upload results to the new repo
       - name: Commit and Push
         run: |
           cd target_repo
@@ -236,7 +258,7 @@ jobs:
           git add .
           git commit -m "feat: AI generated landing page via Central Workflow"
           git branch -M main
-          git push -u origin main
+          git push https://x-access-token:${{ secrets.ORG_PAT }}@github.com/${{ github.repository_owner }}/${{ steps.resolve_name.outputs.final_repo_name }}.git main
 
       # STEP 7: Activate GitHub Pages, make Public, and update "About" sections
       - name: Finalize Deployment and Update Metadata
