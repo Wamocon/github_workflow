@@ -36,6 +36,20 @@ jobs:
       VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
 
     steps:
+      - name: Validate Secrets and Token Expiration
+        run: |
+          if [[ -z "${{ secrets.ORG_PAT }}" ]]; then
+            echo "::error::ORG_PAT ist nicht gesetzt. Bitte fügen Sie den ORG_PAT als Secret hinzu."
+            exit 1
+          fi
+          if [[ -z "${{ secrets.VERCEL_TOKEN }}" ]]; then
+            echo "::error::VERCEL_TOKEN ist nicht gesetzt. Bitte fügen Sie den VERCEL_TOKEN als Secret hinzu."
+            exit 1
+          fi
+          if [[ -z "${{ secrets.VERCEL_ORG_ID }}" ]]; then
+            echo "::error::VERCEL_ORG_ID ist nicht gesetzt. Bitte fügen Sie den VERCEL_ORG_ID als Secret hinzu."
+            exit 1
+          fi
       - name: Checkout code
         uses: actions/checkout@v4
 
