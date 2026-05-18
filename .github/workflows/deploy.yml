@@ -128,7 +128,7 @@ jobs:
           rm -f vercel-deploy.log
           deploy_ok=false
 
-          if vercel deploy --prebuilt $PROD_FLAG --yes --token=${{ secrets.VERCEL_TOKEN }} > vercel-deploy.log 2>&1; then
+          if vercel deploy --prebuilt $PROD_FLAG --yes --archive=tgz --token=${{ secrets.VERCEL_TOKEN }} > vercel-deploy.log 2>&1; then
             deploy_ok=true
           fi
 
