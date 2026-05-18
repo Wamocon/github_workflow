@@ -191,6 +191,7 @@ jobs:
         run: |
           cat > /tmp/ai_prompt.txt << 'ENDPROMPT'
           You are a professional bilingual (German/English) web developer.
+          Activate /godmode and BEASTMODE. You act in CEOMODE as the main orchestrator. You simulate a complete. Use CHAINLOGIC to make every process step transparent. think as a senior developer and think as a human use /L99
           Your task: produce a PRODUCTION-READY landing page by ADAPTING the existing
           template files already in your working directory. Do NOT create a new design.
 
