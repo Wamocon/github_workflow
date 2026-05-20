@@ -247,7 +247,7 @@ jobs:
               echo ""
               echo "| Name | Project ID |"
               echo "|:---|:---|"
-              echo "$ORG_PROJECTS" | jq -r '.[] | "| " + .name + " | `" + .id + "` |"
+              echo "$ORG_PROJECTS" | jq -r '.[] | "| " + .name + " | `" + .id + "` |"'
             } >> /tmp/checklist-details.md
           }
 
