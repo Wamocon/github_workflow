@@ -103,11 +103,14 @@ jobs:
             echo "CUSTOM_DOMAIN="
           } >> "$GITHUB_ENV"
 
+          # Temp file for extra details rendered after the table
+          echo "" > /tmp/checklist-details.md
+
           {
             echo "## 🚀 Launch Checklist — \`$REPO_NAME\`"
             echo ""
             echo "| Check | Status | Detail |"
-            echo "|---|---|---|"
+            echo "|:---|:---:|:---|"
           } >> "$GITHUB_STEP_SUMMARY"
 
       # ── 1. Vercel: project exists + production + preview deployments ────────
@@ -236,9 +239,18 @@ jobs:
           NAME_HINT="${{ inputs.supabase_project_name }}"
           [[ -z "$NAME_HINT" ]] && NAME_HINT="$REPO_NAME"
 
-          # Helper: list all project names for context on failure
-          list_projects() {
-            echo "$ORG_PROJECTS" | jq -r '.[] | "- `" + .name + "` (" + .id + ")"' | tr '\n' ' '
+          # Build a newline-separated "name|id" list for bash matching
+          NAMES_IDS=$(echo "$ORG_PROJECTS" | jq -r '.[] | .name + "|" + .id')
+
+          # Helper: write project list to the details file (rendered after the table)
+          write_project_list() {
+            {
+              echo "### Supabase projects in org ($ORG_COUNT total)"
+              echo ""
+              echo "| Name | Project ID |"
+              echo "|:---|:---|"
+              echo "$ORG_PROJECTS" | jq -r '.[] | "| " + .name + " | `" + .id + "` |"
+            } >> /tmp/checklist-details.md
           }
 
           if [[ -n "$GIVEN_ID" ]]; then
@@ -246,27 +258,30 @@ jobs:
             MATCH_NAME=$(echo "$ORG_PROJECTS" | jq -r \
               --arg id "$GIVEN_ID" '.[] | select(.id == $id) | .name')
             if [[ -n "$MATCH_NAME" ]]; then
-              echo "| Supabase — project | ✅ | \`$MATCH_NAME\` (\`$GIVEN_ID\`) — verified in org |" >> "$GITHUB_STEP_SUMMARY"
+              echo "| Supabase — project | ✅ | \`$MATCH_NAME\` · \`$GIVEN_ID\` |" >> "$GITHUB_STEP_SUMMARY"
             else
-              echo "| Supabase — project | ❌ | ID \`$GIVEN_ID\` not found in org \`$SUPABASE_ORG_ID\` ($ORG_COUNT projects) |" >> "$GITHUB_STEP_SUMMARY"
-              echo "" >> "$GITHUB_STEP_SUMMARY"
-              echo "> **Projects in org:** $(list_projects)" >> "$GITHUB_STEP_SUMMARY"
+              echo "| Supabase — project | ❌ | ID \`$GIVEN_ID\` not found in org ($ORG_COUNT projects — see details below) |" >> "$GITHUB_STEP_SUMMARY"
+              write_project_list
             fi
           else
-            # ── Auto-discover: fuzzy match by repo name ───────────────────────
+            # ── Auto-discover: bash loop fuzzy match (name contains hint OR hint contains name)
             HINT_LOWER=$(echo "$NAME_HINT" | tr '[:upper:]' '[:lower:]')
-            MATCH=$(echo "$ORG_PROJECTS" | jq -r \
-              --arg hint "$HINT_LOWER" \
-              '.[] | select((.name | ascii_downcase | contains($hint)) or ($hint | contains(.name | ascii_downcase))) | .name + "|" + .id' \
-              | head -1)
+            MATCH=""
+            while IFS='|' read -r pname pid; do
+              pname_lower=$(echo "$pname" | tr '[:upper:]' '[:lower:]')
+              if [[ "$pname_lower" == *"$HINT_LOWER"* ]] || [[ "$HINT_LOWER" == *"$pname_lower"* ]]; then
+                MATCH="$pname|$pid"
+                break
+              fi
+            done < <(echo "$NAMES_IDS")
+
             if [[ -n "$MATCH" ]]; then
               MATCH_NAME=$(echo "$MATCH" | cut -d'|' -f1)
               MATCH_ID=$(echo "$MATCH" | cut -d'|' -f2)
-              echo "| Supabase — project | ✅ | \`$MATCH_NAME\` (\`$MATCH_ID\`) — fuzzy match on \`$NAME_HINT\` |" >> "$GITHUB_STEP_SUMMARY"
+              echo "| Supabase — project | ✅ | \`$MATCH_NAME\` · \`$MATCH_ID\` |" >> "$GITHUB_STEP_SUMMARY"
             else
-              echo "| Supabase — project | ❌ | No match for \`$NAME_HINT\` in org \`$SUPABASE_ORG_ID\` ($ORG_COUNT projects) |" >> "$GITHUB_STEP_SUMMARY"
-              echo "" >> "$GITHUB_STEP_SUMMARY"
-              echo "> **Projects in org:** $(list_projects)" >> "$GITHUB_STEP_SUMMARY"
+              echo "| Supabase — project | ❌ | No match for \`$NAME_HINT\` in org ($ORG_COUNT projects — see details below) |" >> "$GITHUB_STEP_SUMMARY"
+              write_project_list
             fi
           fi
 
@@ -382,3 +397,12 @@ jobs:
             echo "---"
             echo "_Checked: $(date -u '+%Y-%m-%d %H:%M UTC') · Trigger: \`${{ github.event_name }}\` · Run: [#${{ github.run_number }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})_"
           } >> "$GITHUB_STEP_SUMMARY"
+
+          # Append any extra details collected during checks (e.g. Supabase project list)
+          if [[ -s /tmp/checklist-details.md ]]; then
+            {
+              echo ""
+              echo "---"
+              cat /tmp/checklist-details.md
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
