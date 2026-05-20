@@ -106,12 +106,8 @@ jobs:
           # Temp file for extra details rendered after the table
           echo "" > /tmp/checklist-details.md
 
-          {
-            echo "## 🚀 Launch Checklist — \`$REPO_NAME\`"
-            echo ""
-            echo "| Check | Status | Detail |"
-            echo "|:---|:---:|:---|"
-          } >> "$GITHUB_STEP_SUMMARY"
+          # All table rows collected here; footer writes the complete table at once
+          echo "" > /tmp/checklist-table.md
 
       # ── 1. Vercel: project exists + production + preview deployments ────────
       - name: Vercel — project & deployments
@@ -132,12 +128,12 @@ jobs:
           PROJECT_ID=$(echo "$PROJECT_RESP" | jq -r '.id // empty')
 
           if [[ -z "$PROJECT_ID" ]]; then
-            echo "| Vercel — project exists | ❌ | Project \`$VERCEL_PROJECT\` not found |" >> "$GITHUB_STEP_SUMMARY"
+            echo "| Vercel — project exists | ❌ | Project \`$VERCEL_PROJECT\` not found |" >> /tmp/checklist-table.md
             exit 0
           fi
 
           echo "VERCEL_PROJECT_ID=$PROJECT_ID" >> "$GITHUB_ENV"
-          echo "| Vercel — project exists | ✅ | \`$PROJECT_ID\` |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Vercel — project exists | ✅ | \`$PROJECT_ID\` |" >> /tmp/checklist-table.md
 
           # ── Production deployment ──────────────────────────────────────────
           PROD_RESP=$(curl -sf \
@@ -149,9 +145,9 @@ jobs:
 
           if [[ -n "$PROD_URL" ]]; then
             echo "VERCEL_APP_URL=https://$PROD_URL" >> "$GITHUB_ENV"
-            echo "| Vercel — production deployment | ✅ | https://$PROD_URL |" >> "$GITHUB_STEP_SUMMARY"
+            echo "| Vercel — production deployment | ✅ | https://$PROD_URL |" >> /tmp/checklist-table.md
           else
-            echo "| Vercel — production deployment | ❌ | No READY production deployment found |" >> "$GITHUB_STEP_SUMMARY"
+            echo "| Vercel — production deployment | ❌ | No READY production deployment found |" >> /tmp/checklist-table.md
           fi
 
           # ── Preview deployment ─────────────────────────────────────────────
@@ -163,9 +159,9 @@ jobs:
           PREVIEW_URL=$(echo "$PREVIEW_RESP" | jq -r '[.deployments[] | select(.state == "READY")] | first | .url // empty')
 
           if [[ -n "$PREVIEW_URL" ]]; then
-            echo "| Vercel — preview deployment | ✅ | https://$PREVIEW_URL |" >> "$GITHUB_STEP_SUMMARY"
+            echo "| Vercel — preview deployment | ✅ | https://$PREVIEW_URL |" >> /tmp/checklist-table.md
           else
-            echo "| Vercel — preview deployment | ❌ | No READY preview deployment found |" >> "$GITHUB_STEP_SUMMARY"
+            echo "| Vercel — preview deployment | ❌ | No READY preview deployment found |" >> /tmp/checklist-table.md
           fi
 
       # ── 2. Vercel: custom domain ───────────────────────────────────────────
@@ -176,7 +172,7 @@ jobs:
           VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
         run: |
           if [[ -z "$VERCEL_PROJECT_ID" ]]; then
-            echo "| Vercel — custom domain | ⚠️ | Skipped (project not found) |" >> "$GITHUB_STEP_SUMMARY"
+            echo "| Vercel — custom domain | ⚠️ | Skipped (project not found) |" >> /tmp/checklist-table.md
             exit 0
           fi
 
@@ -196,9 +192,9 @@ jobs:
               '.domains[] | select(.name == $d) | .name' | head -1)
             if [[ -n "$FOUND" ]]; then
               echo "CUSTOM_DOMAIN=$EXPECTED" >> "$GITHUB_ENV"
-              echo "| Vercel — custom domain | ✅ | \`$EXPECTED\` is configured |" >> "$GITHUB_STEP_SUMMARY"
+              echo "| Vercel — custom domain | ✅ | \`$EXPECTED\` is configured |" >> /tmp/checklist-table.md
             else
-              echo "| Vercel — custom domain | ❌ | \`$EXPECTED\` NOT found on project \`$VERCEL_PROJECT\` |" >> "$GITHUB_STEP_SUMMARY"
+              echo "| Vercel — custom domain | ❌ | \`$EXPECTED\` NOT found on project \`$VERCEL_PROJECT\` |" >> /tmp/checklist-table.md
             fi
           else
             # ── Auto-discover: first non-vercel.app / non-now.sh domain ─────
@@ -207,9 +203,9 @@ jobs:
               | head -1)
             if [[ -n "$CUSTOM" ]]; then
               echo "CUSTOM_DOMAIN=$CUSTOM" >> "$GITHUB_ENV"
-              echo "| Vercel — custom domain | ✅ | \`$CUSTOM\` |" >> "$GITHUB_STEP_SUMMARY"
+              echo "| Vercel — custom domain | ✅ | \`$CUSTOM\` |" >> /tmp/checklist-table.md
             else
-              echo "| Vercel — custom domain | ❌ | No custom domain configured |" >> "$GITHUB_STEP_SUMMARY"
+              echo "| Vercel — custom domain | ❌ | No custom domain configured |" >> /tmp/checklist-table.md
             fi
           fi
 
@@ -227,7 +223,7 @@ jobs:
             2>/dev/null || echo "null")
 
           if [[ "$ALL_PROJECTS" == "null" ]] || [[ -z "$ALL_PROJECTS" ]]; then
-            echo "| Supabase — project | ⚠️ | Could not reach Supabase API |" >> "$GITHUB_STEP_SUMMARY"
+            echo "| Supabase — project | ⚠️ | Could not reach Supabase API |" >> /tmp/checklist-table.md
             exit 0
           fi
 
@@ -256,9 +252,9 @@ jobs:
             MATCH_NAME=$(echo "$ORG_PROJECTS" | jq -r \
               --arg id "$GIVEN_ID" '.[] | select(.id == $id) | .name')
             if [[ -n "$MATCH_NAME" ]]; then
-              echo "| Supabase — project | ✅ | \`$MATCH_NAME\` · \`$GIVEN_ID\` |" >> "$GITHUB_STEP_SUMMARY"
+              echo "| Supabase — project | ✅ | \`$MATCH_NAME\` · \`$GIVEN_ID\` |" >> /tmp/checklist-table.md
             else
-              echo "| Supabase — project | ❌ | ID \`$GIVEN_ID\` not found in org ($ORG_COUNT projects — see details below) |" >> "$GITHUB_STEP_SUMMARY"
+              echo "| Supabase — project | ❌ | ID \`$GIVEN_ID\` not found in org ($ORG_COUNT projects — see details below) |" >> /tmp/checklist-table.md
               write_project_list
             fi
           else
@@ -276,9 +272,9 @@ jobs:
             if [[ -n "$MATCH" ]]; then
               MATCH_NAME=$(echo "$MATCH" | cut -d'|' -f1)
               MATCH_ID=$(echo "$MATCH" | cut -d'|' -f2)
-              echo "| Supabase — project | ✅ | \`$MATCH_NAME\` · \`$MATCH_ID\` |" >> "$GITHUB_STEP_SUMMARY"
+              echo "| Supabase — project | ✅ | \`$MATCH_NAME\` · \`$MATCH_ID\` |" >> /tmp/checklist-table.md
             else
-              echo "| Supabase — project | ❌ | No match for \`$NAME_HINT\` in org ($ORG_COUNT projects — see details below) |" >> "$GITHUB_STEP_SUMMARY"
+              echo "| Supabase — project | ❌ | No match for \`$NAME_HINT\` in org ($ORG_COUNT projects — see details below) |" >> /tmp/checklist-table.md
               write_project_list
             fi
           fi
@@ -292,17 +288,17 @@ jobs:
           REPO_JSON=$(gh api "repos/$REPO_OWNER/$LP_REPO" 2>/dev/null || echo "")
 
           if [[ -z "$REPO_JSON" ]]; then
-            echo "| Landing page — repo | ❌ | \`$REPO_OWNER/$LP_REPO\` not found |" >> "$GITHUB_STEP_SUMMARY"
-            echo "| Landing page — GitHub Pages | ⚠️ | Skipped (repo not found) |" >> "$GITHUB_STEP_SUMMARY"
+            echo "| Landing page — repo | ❌ | \`$REPO_OWNER/$LP_REPO\` not found |" >> /tmp/checklist-table.md
+            echo "| Landing page — GitHub Pages | ⚠️ | Skipped (repo not found) |" >> /tmp/checklist-table.md
             exit 0
           fi
 
           REPO_URL=$(echo "$REPO_JSON" | jq -r '.html_url // empty')
-          echo "| Landing page — repo | ✅ | [$REPO_OWNER/$LP_REPO]($REPO_URL) |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Landing page — repo | ✅ | [$REPO_OWNER/$LP_REPO]($REPO_URL) |" >> /tmp/checklist-table.md
 
           PAGES_JSON=$(gh api "repos/$REPO_OWNER/$LP_REPO/pages" 2>/dev/null || echo "")
           if [[ -z "$PAGES_JSON" ]]; then
-            echo "| Landing page — GitHub Pages | ❌ | Pages not enabled on \`$LP_REPO\` |" >> "$GITHUB_STEP_SUMMARY"
+            echo "| Landing page — GitHub Pages | ❌ | Pages not enabled on \`$LP_REPO\` |" >> /tmp/checklist-table.md
             exit 0
           fi
 
@@ -312,12 +308,12 @@ jobs:
           if [[ "$PAGES_STATUS" == "built" ]]; then
             HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 "$PAGES_URL" 2>/dev/null || echo "000")
             if [[ "$HTTP_CODE" =~ ^(200|301|302)$ ]]; then
-              echo "| Landing page — GitHub Pages | ✅ | [$PAGES_URL]($PAGES_URL) (HTTP $HTTP_CODE) |" >> "$GITHUB_STEP_SUMMARY"
+              echo "| Landing page — GitHub Pages | ✅ | [$PAGES_URL]($PAGES_URL) (HTTP $HTTP_CODE) |" >> /tmp/checklist-table.md
             else
-              echo "| Landing page — GitHub Pages | ⚠️ | $PAGES_URL → HTTP $HTTP_CODE |" >> "$GITHUB_STEP_SUMMARY"
+              echo "| Landing page — GitHub Pages | ⚠️ | $PAGES_URL → HTTP $HTTP_CODE |" >> /tmp/checklist-table.md
             fi
           else
-            echo "| Landing page — GitHub Pages | ⚠️ | Pages status: \`$PAGES_STATUS\` |" >> "$GITHUB_STEP_SUMMARY"
+            echo "| Landing page — GitHub Pages | ⚠️ | Pages status: \`$PAGES_STATUS\` |" >> /tmp/checklist-table.md
           fi
 
       # ── 5. Product handbook: scan all known locations ─────────────────────
@@ -341,7 +337,7 @@ jobs:
             if [[ "$CODE" =~ ^(200|301|302)$ ]]; then
               FOUND_URL="$GIVEN_HANDBOOK (HTTP $CODE)"
             else
-              echo "| Product handbook | ❌ | Provided URL \`$GIVEN_HANDBOOK\` → HTTP $CODE |" >> "$GITHUB_STEP_SUMMARY"
+              echo "| Product handbook | ❌ | Provided URL \`$GIVEN_HANDBOOK\` → HTTP $CODE |" >> /tmp/checklist-table.md
               exit 0
             fi
           fi
@@ -381,16 +377,22 @@ jobs:
           fi
 
           if [[ -n "$FOUND_URL" ]]; then
-            echo "| Product handbook | ✅ | $FOUND_URL |" >> "$GITHUB_STEP_SUMMARY"
+            echo "| Product handbook | ✅ | $FOUND_URL |" >> /tmp/checklist-table.md
           else
-            echo "| Product handbook | ❌ | Not found at /user-manual, /manual, /handbook (app URL + GitHub Pages checked) |" >> "$GITHUB_STEP_SUMMARY"
+            echo "| Product handbook | ❌ | Not found at /user-manual, /manual, /handbook (app URL + GitHub Pages checked) |" >> /tmp/checklist-table.md
           fi
 
       # ── Footer ─────────────────────────────────────────────────────────────
       - name: Summary footer
         if: always()
         run: |
+          # Write the entire table in one block — no step-boundary blank lines
           {
+            echo "## 🚀 Launch Checklist — \`$REPO_NAME\`"
+            echo ""
+            echo "| Check | Status | Detail |"
+            echo "|:---|:---:|:---|"
+            cat /tmp/checklist-table.md
             echo ""
             echo "---"
             echo "_Checked: $(date -u '+%Y-%m-%d %H:%M UTC') · Trigger: \`${{ github.event_name }}\` · Run: [#${{ github.run_number }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})_"
