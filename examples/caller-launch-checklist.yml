@@ -1,0 +1,99 @@
+# =============================================================================
+# Launch Checklist — Caller Workflow
+# =============================================================================
+# COPY this file into your project as:
+#   .github/workflows/launch-checklist.yml
+#
+# WHAT THIS DOES:
+#   Runs automatically on every published release OR manually via the Actions tab.
+#   Checks that all launch prerequisites are in place and writes a pass/fail
+#   report to the GitHub Actions Step Summary.
+#
+#   Checks performed:
+#     - Vercel: project exists
+#     - Vercel: production deployment is READY
+#     - Vercel: preview deployment is READY
+#     - Vercel: custom domain is configured
+#     - Supabase: project exists in your org
+#     - Landing page: repo ({project}_lp) exists on GitHub
+#     - Landing page: GitHub Pages is live
+#     - Product handbook: reachable at /user-manual, /manual, or /handbook
+#
+# HOW INPUTS WORK — two modes for every field:
+#   PROVIDE a value  -> Verify mode: confirms your value is real & connected.
+#   LEAVE it empty   -> Auto-discover mode: finds it automatically and reports.
+#
+# SETUP — secrets needed (set once at Organisation level, nothing to do here):
+#   VERCEL_TOKEN          — Vercel personal access token
+#   VERCEL_ORG_ID         — Vercel team/org ID
+#   SUPABASE_ACCESS_TOKEN — Supabase personal access token
+#   SUPABASE_ORG_ID       — Supabase organisation ID (scopes the project search)
+#   ORG_PAT               — GitHub PAT with repo + pages scope
+#
+# HOW TO RUN MANUALLY:
+#   1. GitHub repo -> Actions tab
+#   2. Select "Launch Checklist" in the left sidebar
+#   3. Click "Run workflow" and optionally fill in any overrides
+#   4. Click "Run workflow" — check the Summary tab when done
+# =============================================================================
+
+name: Launch Checklist
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      # ── Vercel ──────────────────────────────────────────────────────────────
+      vercel_project_name:
+        description: "Vercel project name (leave empty to use this repo name)"
+        required: false
+        default: ""
+      vercel_custom_domain:
+        description: "Expected custom domain, e.g. myapp.com (leave empty to auto-discover)"
+        required: false
+        default: ""
+      # ── Supabase ────────────────────────────────────────────────────────────
+      supabase_project_id:
+        description: "Supabase project ref/ID (leave empty to fuzzy-search by name)"
+        required: false
+        default: ""
+      supabase_project_name:
+        description: "Supabase project name hint for fuzzy search (leave empty to use repo name)"
+        required: false
+        default: ""
+      # ── Landing Page ────────────────────────────────────────────────────────
+      lp_repo_name:
+        description: "Landing page repo name (leave empty to use {repo-name}_lp)"
+        required: false
+        default: ""
+      # ── Handbook ────────────────────────────────────────────────────────────
+      app_url:
+        description: "App base URL for handbook check (leave empty to auto-discover from Vercel)"
+        required: false
+        default: ""
+      handbook_url:
+        description: "Direct handbook URL if hosted separately (leave empty to scan /user-manual, /manual, /handbook)"
+        required: false
+        default: ""
+
+jobs:
+  checklist:
+    name: Run checklist
+    # IMPORTANT: Path to the central workflow. Format: OrgName/RepoName/.github/...@Branch
+    uses: Wamocon/github_workflow/.github/workflows/launch-checklist.yml@main
+    with:
+      vercel_project_name: ${{ github.event.inputs.vercel_project_name || '' }}
+      vercel_custom_domain: ${{ github.event.inputs.vercel_custom_domain || '' }}
+      supabase_project_id:  ${{ github.event.inputs.supabase_project_id  || '' }}
+      supabase_project_name: ${{ github.event.inputs.supabase_project_name || '' }}
+      lp_repo_name:          ${{ github.event.inputs.lp_repo_name          || '' }}
+      app_url:               ${{ github.event.inputs.app_url               || '' }}
+      handbook_url:          ${{ github.event.inputs.handbook_url          || '' }}
+    secrets:
+      # These secrets must be set once at the Organisation level (Wamocon).
+      VERCEL_TOKEN:          ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_ORG_ID:         ${{ secrets.VERCEL_ORG_ID }}
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      SUPABASE_ORG_ID:       ${{ secrets.SUPABASE_ORG_ID }}
+      ORG_PAT:               ${{ secrets.ORG_PAT }}
