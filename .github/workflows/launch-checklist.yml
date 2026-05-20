@@ -216,6 +216,7 @@ jobs:
       # ── 3. Supabase: project in org ────────────────────────────────────────
       - name: Supabase — project
         if: always()
+        shell: bash
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
           SUPABASE_ORG_ID: ${{ secrets.SUPABASE_ORG_ID }}
@@ -239,9 +240,6 @@ jobs:
           NAME_HINT="${{ inputs.supabase_project_name }}"
           [[ -z "$NAME_HINT" ]] && NAME_HINT="$REPO_NAME"
 
-          # Build a newline-separated "name|id" list for bash matching
-          NAMES_IDS=$(echo "$ORG_PROJECTS" | jq -r '.[] | .name + "|" + .id')
-
           # Helper: write project list to the details file (rendered after the table)
           write_project_list() {
             {
@@ -264,16 +262,16 @@ jobs:
               write_project_list
             fi
           else
-            # ── Auto-discover: bash loop fuzzy match (name contains hint OR hint contains name)
+            # -- Auto-discover: pure jq fuzzy match -- no bash process substitution.
+            # `. as $n` captures the lowercased name before piping $hint as input,
+            # so `$hint | contains($n)` works correctly (context stays on $hint).
             HINT_LOWER=$(echo "$NAME_HINT" | tr '[:upper:]' '[:lower:]')
-            MATCH=""
-            while IFS='|' read -r pname pid; do
-              pname_lower=$(echo "$pname" | tr '[:upper:]' '[:lower:]')
-              if [[ "$pname_lower" == *"$HINT_LOWER"* ]] || [[ "$HINT_LOWER" == *"$pname_lower"* ]]; then
-                MATCH="$pname|$pid"
-                break
-              fi
-            done < <(echo "$NAMES_IDS")
+            MATCH=$(echo "$ORG_PROJECTS" | jq -r \
+              --arg hint "$HINT_LOWER" \
+              '.[] | select(
+                (.name | ascii_downcase | contains($hint)) or
+                (.name | ascii_downcase | . as $n | $hint | contains($n))
+              ) | .name + "|" + .id' | head -1)
 
             if [[ -n "$MATCH" ]]; then
               MATCH_NAME=$(echo "$MATCH" | cut -d'|' -f1)
