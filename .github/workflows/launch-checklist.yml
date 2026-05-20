@@ -104,10 +104,11 @@ jobs:
           } >> "$GITHUB_ENV"
 
           # Temp file for extra details rendered after the table
-          echo "" > /tmp/checklist-details.md
+          : > /tmp/checklist-details.md
 
-          # All table rows collected here; footer writes the complete table at once
-          echo "" > /tmp/checklist-table.md
+          # All table rows collected here; footer writes the complete table at once.
+          # Important: do not start with a blank line, or GitHub breaks table parsing.
+          : > /tmp/checklist-table.md
 
       # ── 1. Vercel: project exists + production + preview deployments ────────
       - name: Vercel — project & deployments
@@ -145,7 +146,7 @@ jobs:
 
           if [[ -n "$PROD_URL" ]]; then
             echo "VERCEL_APP_URL=https://$PROD_URL" >> "$GITHUB_ENV"
-            echo "| Vercel — production deployment | ✅ | https://$PROD_URL |" >> /tmp/checklist-table.md
+            echo "| Vercel — production deployment | ✅ | [open deployment](https://$PROD_URL) |" >> /tmp/checklist-table.md
           else
             echo "| Vercel — production deployment | ❌ | No READY production deployment found |" >> /tmp/checklist-table.md
           fi
@@ -159,7 +160,7 @@ jobs:
           PREVIEW_URL=$(echo "$PREVIEW_RESP" | jq -r '[.deployments[] | select(.state == "READY")] | first | .url // empty')
 
           if [[ -n "$PREVIEW_URL" ]]; then
-            echo "| Vercel — preview deployment | ✅ | https://$PREVIEW_URL |" >> /tmp/checklist-table.md
+            echo "| Vercel — preview deployment | ✅ | [open deployment](https://$PREVIEW_URL) |" >> /tmp/checklist-table.md
           else
             echo "| Vercel — preview deployment | ❌ | No READY preview deployment found |" >> /tmp/checklist-table.md
           fi
