@@ -396,6 +396,11 @@ jobs:
                 --jq '.[0].commit.committer.date // empty' 2>/dev/null || echo "")
 
               if [[ -n "$DOCS_COMMIT" ]]; then
+                # GitHub Pages needs the repo to be public to be accessible
+                gh repo edit "$REPO_OWNER/$REPO_NAME" \
+                  --visibility public \
+                  --accept-visibility-change-consequences 2>/dev/null || true
+
                 # Enable or update Pages to serve from docs/ on main
                 gh api "repos/$REPO_OWNER/$REPO_NAME/pages" \
                   --method POST \

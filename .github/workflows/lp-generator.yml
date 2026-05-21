@@ -167,16 +167,22 @@ jobs:
           } > target_repo/PRODUCT_CONTEXT.md
           echo "Context file size: $(wc -c < target_repo/PRODUCT_CONTEXT.md) bytes"
 
-          # ── 2. Copy app icon / logo assets into target_repo/_source_assets/ ────
-          # Copilot will be told to use these to replace the template icon.
+          # ── 2. Copy app icon / logo / favicon assets into target_repo/_source_assets/ ─
           mkdir -p target_repo/_source_assets
-          # SVG icons (preferred)
+          # Collect SVGs, PNGs, favicons and .ico files
           find . -not -path "./.git/*" -not -path "./target_repo/*" \
             \( -name "*.svg" -o -name "icon*.png" -o -name "logo*.png" \
-               -o -name "app-icon*.png" -o -name "app_icon*.png" \) \
-            | head -10 \
+               -o -name "app-icon*.png" -o -name "app_icon*.png" \
+               -o -name "favicon*" -o -name "*.ico" \) \
+            | head -15 \
             | while read -r f; do cp "$f" target_repo/_source_assets/; done
+          # Write an explicit list so the AI knows the exact filenames
+          {
+            echo "Files available in _source_assets/ — use these for logo and favicon:"
+            ls -1 target_repo/_source_assets/ 2>/dev/null || echo "(none found)"
+          } > target_repo/_source_assets/ASSETS_LIST.txt
           echo "Source assets copied: $(ls target_repo/_source_assets/ 2>/dev/null | wc -l) files"
+          cat target_repo/_source_assets/ASSETS_LIST.txt
 
       # STEP 5: The AI Transformation (The Core)
       # Copilot is sandboxed to target_repo/. All product info is in PRODUCT_CONTEXT.md.
@@ -190,56 +196,72 @@ jobs:
           COPILOT_GITHUB_TOKEN: ${{ secrets.COPILOT_PAT }}
         run: |
           cat > /tmp/ai_prompt.txt << 'ENDPROMPT'
-          You are a professional bilingual (German/English) web developer.
-          Activate /godmode and BEASTMODE. You act in CEOMODE as the main orchestrator. You simulate a complete. Use CHAINLOGIC to make every process step transparent. think as a senior developer and think as a human use /L99
-          Your task: produce a PRODUCTION-READY landing page by ADAPTING the existing
-          template files already in your working directory. Do NOT create a new design.
+          You are a senior bilingual (German/English) web developer delivering a
+          PRODUCTION-READY landing page. Think step-by-step before writing any file.
 
-          STEP 1 - READ PRODUCT CONTEXT (mandatory before touching any file):
-          Read PRODUCT_CONTEXT.md completely and extract:
-            - Product name and one-sentence value proposition
-            - 3 to 5 key features or benefits
-            - Target audience
-            - App store or download links (App Store, Play Store, web app URL)
-            - Brand colors if mentioned
-            - Company legal details (name, address, email)
-            - List of files in _source_assets/ - these are the product icons and logos
+          ══════════════════════════════════════════════════════════
+          ABSOLUTE RULES (break any of these = task failed):
+          1. Every word of user-facing text MUST come from PRODUCT_CONTEXT.md.
+             NEVER invent features, descriptions, or benefits. If information is
+             missing, write [placeholder] — do NOT guess or use generic phrases.
+          2. The product logo AND favicon MUST be replaced with the actual product
+             assets from _source_assets/ (see ASSETS_LIST.txt). The template's
+             original icon/logo must NOT appear anywhere in the output.
+          3. PRESERVE the complete HTML structure, every CSS class/id, every
+             data-* attribute, and all JS functions exactly as they are.
+          ══════════════════════════════════════════════════════════
 
-          STEP 2 - READ ALL TEMPLATE FILES:
-          Read every existing file: index.html (and index.en.html if present),
-          style.css, script.js, impressum.html, datenschutz.html, agb.html,
-          app-icon-light.svg. Understand the exact HTML structure, CSS class names,
-          id attributes, and the bilingual mechanism (data-de/data-en or JS toggle).
+          STEP 1 — READ PRODUCT CONTEXT (do this first, before touching any file):
+          Read PRODUCT_CONTEXT.md completely. Extract and note:
+            • Product name and one-sentence value proposition
+            • 3–5 concrete features or benefits (exact wording from the file)
+            • Target audience
+            • App store / download / web app URLs
+            • Brand / accent colors (hex codes if present)
+            • Company legal details: name, address, email, VAT number
 
-          STEP 3 - PLAN CHANGES before writing anything:
-          Identify only what must change:
-            a) Every occurrence of the old product or brand name
-            b) Hero headline and subheadline in both DE and EN
-            c) Feature and benefit section text in both DE and EN
-            d) CTA button labels and href links (use URLs from context)
-            e) App icon: use best file from _source_assets/ to replace app-icon-light.svg;
-               if none exists, redesign the SVG to represent this specific product
-            f) Primary CSS accent color only if product brand color is clearly identifiable
-            g) Legal pages: replace company name, address, email in all three files
-            h) Title tag and meta description on every HTML page
+          STEP 2 — READ ASSET LIST:
+          Read _source_assets/ASSETS_LIST.txt. Note the exact filename of:
+            • The best logo/icon file (prefer .svg, else largest .png)
+            • A favicon file (.ico or favicon.png, if present)
+          These filenames are MANDATORY replacements — use them in STEP 3e.
 
-          STEP 4 - ADAPT FILES (strict rules, one file at a time):
-            PRESERVE every HTML tag, CSS class, id, data-* attribute, and JS function.
-            PRESERVE the bilingual toggle mechanism exactly as it is in the template.
-            ONLY change: text content inside tags, href/src for relevant links, CSS colors.
-            Every user-facing string must have both a German and an English version.
-            Write each file in chunks of MAX 200 lines per write call.
+          STEP 3 — READ ALL TEMPLATE FILES:
+          Read every file: index.html (+ index.en.html if present), style.css,
+          script.js, impressum.html, datenschutz.html, agb.html, app-icon-light.svg.
+          Map the bilingual mechanism (data-de/data-en attributes or JS toggle).
 
-          STEP 5 - SELF-REVIEW (mandatory - re-read every HTML file you changed):
-            No old product name or placeholder text remains anywhere.
-            Every body text element has bilingual versions DE and EN.
-            All internal href anchors from the template still exist in output.
-            Legal pages have the correct new company details.
-            No unclosed HTML tags or broken CSS rules.
+          STEP 4 — PLAN CHANGES (write your plan as comments, then execute):
+            a) All occurrences of the old product/brand name → new product name
+            b) Hero headline + subheadline in DE and EN (from context, not invented)
+            c) Feature/benefit section text in DE and EN (from context only)
+            d) CTA button text and href links (use exact URLs from context)
+            e) LOGO: copy the chosen logo file from _source_assets/ into the repo
+               root, then update every <img> src that shows the app logo to point
+               to this file. Update app-icon-light.svg content to match the product.
+            f) FAVICON: if a favicon file exists in _source_assets/, copy it to the
+               repo root and update ALL <link rel="icon">, <link rel="shortcut icon">,
+               <link rel="apple-touch-icon"> href values. Also update og:image.
+            g) CSS accent color: change ONLY if a brand color is stated in context.
+            h) Legal pages: replace company name, address, email in all three files.
+            i) <title> and <meta name="description"> on every HTML page.
 
-          STEP 6 - CLEANUP:
+          STEP 5 — WRITE FILES (one at a time, max 200 lines per write call):
+            PRESERVE every HTML tag, CSS class, id, data-*, JS function.
+            PRESERVE the bilingual toggle mechanism exactly as in the template.
+            Every user-facing string must have BOTH DE and EN versions.
+
+          STEP 6 — MANDATORY SELF-REVIEW (re-read every HTML file you wrote):
+            ✓ No template product name or placeholder left anywhere
+            ✓ Logo and favicon point to the product's own asset files
+            ✓ Every visible text has DE and EN versions
+            ✓ All href anchors from the template still exist
+            ✓ Legal pages have the correct company details
+            ✓ No unclosed HTML tags or broken CSS
+
+          STEP 7 — CLEANUP:
           Delete PRODUCT_CONTEXT.md and the _source_assets/ directory.
-          Do NOT run any shell commands, git commands, or attempt to commit or push.
+          Do NOT run any shell, git, or npm commands. Do NOT commit or push.
           The CI pipeline handles all git operations after you finish.
           ENDPROMPT
           echo "Project name: ${{ steps.resolve_name.outputs.final_repo_name }}" >> /tmp/ai_prompt.txt
@@ -297,7 +319,16 @@ jobs:
             --homepage "$PAGES_URL"
 
           # 5. Update the "About" section of the CURRENT Source Repo
-          # This puts the link right where the developers are working
           gh repo edit ${{ github.repository }} --homepage "$PAGES_URL"
-          
+
+          # 6. Grant the workflow trigger actor admin access to the LP repo
+          # so the person who ran this workflow can edit/manage it directly
+          ACTOR="${{ github.actor }}"
+          if [[ -n "$ACTOR" ]]; then
+            gh api "repos/${{ github.repository_owner }}/$FINAL_NAME/collaborators/$ACTOR" \
+              --method PUT \
+              -f permission=admin 2>/dev/null || true
+            echo "Granted admin access to $ACTOR on $FINAL_NAME"
+          fi
+
           echo "Success: Landing page '$FINAL_NAME' is live at $PAGES_URL"
