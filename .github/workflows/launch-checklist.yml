@@ -402,60 +402,81 @@ jobs:
                 --jq '.[0].commit.committer.date // empty' 2>/dev/null || echo "")
 
               if [[ -n "$DOCS_COMMIT" ]]; then
-                # GitHub Pages needs the repo to be public to be accessible
+                # Ensure repo is public (GitHub Pages requires it)
                 gh repo edit "$REPO_OWNER/$REPO_NAME" \
                   --visibility public \
                   --accept-visibility-change-consequences 2>/dev/null || true
 
-                # Enable or update Pages to serve from docs/ on main
-                gh api "repos/$REPO_OWNER/$REPO_NAME/pages" \
-                  --method POST \
-                  -H "Accept: application/vnd.github+json" \
-                  -f "source[branch]=main" \
-                  -f "source[path]=/docs" \
-                  2>/dev/null || \
-                gh api "repos/$REPO_OWNER/$REPO_NAME/pages" \
-                  --method PUT \
-                  -H "Accept: application/vnd.github+json" \
-                  -f "source[branch]=main" \
-                  -f "source[path]=/docs" \
-                  2>/dev/null || true
+                # Try POST (first-time enable) then PUT (re-enable / update source)
+                # Errors are captured explicitly — no silent swallowing
+                if gh api "repos/$REPO_OWNER/$REPO_NAME/pages" \
+                    --method POST \
+                    -H "Accept: application/vnd.github+json" \
+                    -f "source[branch]=main" \
+                    -f "source[path]=/docs" \
+                    --silent 2>/tmp/pg_err.txt; then
+                  echo "Pages enabled via POST"
+                elif gh api "repos/$REPO_OWNER/$REPO_NAME/pages" \
+                    --method PUT \
+                    -H "Accept: application/vnd.github+json" \
+                    -f "source[branch]=main" \
+                    -f "source[path]=/docs" \
+                    --silent 2>/tmp/pg_err.txt; then
+                  echo "Pages source updated via PUT"
+                else
+                  echo "POST and PUT both failed: $(cat /tmp/pg_err.txt 2>/dev/null | head -c 150)"
+                fi
 
+                # Read back the Pages URL (may exist even after a failed POST/PUT
+                # if Pages was already configured before this run)
                 PAGES_BASE=$(gh api "repos/$REPO_OWNER/$REPO_NAME/pages" \
                   --jq '.html_url // empty' 2>/dev/null | sed 's|/$||')
 
-                if [[ -n "$PAGES_BASE" ]]; then
-                  # Poll until Pages is built AND URL is reachable (max 3 min)
-                  echo "Waiting for GitHub Pages build to complete at $PAGES_BASE ..."
-                  MAX_ATTEMPTS=18   # 18 × 10 s = 3 min
-                  ATTEMPT=0
-                  while [[ $ATTEMPT -lt $MAX_ATTEMPTS && -z "$FOUND_URL" ]]; do
-                    PAGES_STATUS=$(gh api "repos/$REPO_OWNER/$REPO_NAME/pages" \
-                      --jq '.status // empty' 2>/dev/null || echo "")
-                    if [[ "$PAGES_STATUS" == "built" ]]; then
-                      # Check handbook sub-paths first, then root
-                      for SUFFIX in "${HANDBOOK_PATHS[@]}" ""; do
-                        TARGET="${PAGES_BASE}${SUFFIX:+/$SUFFIX}"
-                        CODE=$(check_url "$TARGET")
-                        if [[ "$CODE" =~ ^(200|301|302)$ ]]; then
-                          FOUND_URL="$TARGET"
-                          break
-                        fi
-                      done
-                    fi
-                    if [[ -z "$FOUND_URL" ]]; then
-                      ATTEMPT=$((ATTEMPT + 1))
-                      echo "Attempt $ATTEMPT/$MAX_ATTEMPTS — status: ${PAGES_STATUS:-queued}, retrying in 10 s..."
-                      sleep 10
-                    fi
-                  done
+                if [[ -z "$PAGES_BASE" ]]; then
+                  PG_ERR=$(tr -d '\n' < /tmp/pg_err.txt 2>/dev/null | head -c 150)
+                  echo "| Product handbook | ❌ | Could not enable GitHub Pages for docs/ — ${PG_ERR:-go to Settings → Pages and enable manually} |" >> /tmp/checklist-table.md
+                  exit 0
+                fi
 
-                  if [[ -z "$FOUND_URL" ]]; then
-                    # Timed out — Pages still building, report warning with expected URL
-                    echo "HANDBOOK_URL=$PAGES_BASE" >> "$GITHUB_ENV"
-                    echo "| Product handbook | ⚠️ | docs/ deployed but Pages still building after 3 min — [\`$PAGES_BASE\`]($PAGES_BASE) |" >> /tmp/checklist-table.md
+                # Poll until the Pages build finishes (max 3 min = 18 × 10 s)
+                echo "Waiting for GitHub Pages build to finish at $PAGES_BASE ..."
+                MAX_ATTEMPTS=18
+                ATTEMPT=0
+                while [[ $ATTEMPT -lt $MAX_ATTEMPTS ]]; do
+                  PAGES_STATUS=$(gh api "repos/$REPO_OWNER/$REPO_NAME/pages" \
+                    --jq '.status // empty' 2>/dev/null || echo "")
+                  if [[ "$PAGES_STATUS" == "built" ]]; then
+                    # Check standard handbook sub-paths first, then root
+                    for SUFFIX in "${HANDBOOK_PATHS[@]}" ""; do
+                      TARGET="${PAGES_BASE}${SUFFIX:+/$SUFFIX}"
+                      CODE=$(check_url "$TARGET")
+                      if [[ "$CODE" =~ ^(200|301|302)$ ]]; then
+                        FOUND_URL="$TARGET"
+                        break
+                      fi
+                    done
+                    if [[ -z "$FOUND_URL" ]]; then
+                      # Build finished but every path returns 404:
+                      # docs/ likely has no index.html — tell the user what to add
+                      echo "HANDBOOK_URL=$PAGES_BASE" >> "$GITHUB_ENV"
+                      echo "| Product handbook | ⚠️ | Pages live at [\`$PAGES_BASE\`]($PAGES_BASE) but returns 404 — add \`docs/index.html\` to serve content |" >> /tmp/checklist-table.md
+                      exit 0
+                    fi
+                    break   # Found a working URL — exit polling loop
+                  elif [[ "$PAGES_STATUS" == "errored" ]]; then
+                    echo "| Product handbook | ❌ | GitHub Pages build errored — check docs/ for valid HTML or Markdown |" >> /tmp/checklist-table.md
                     exit 0
                   fi
+                  ATTEMPT=$((ATTEMPT + 1))
+                  echo "Attempt $ATTEMPT/$MAX_ATTEMPTS — status: ${PAGES_STATUS:-queued}, retrying in 10 s..."
+                  sleep 10
+                done
+
+                if [[ -z "$FOUND_URL" ]]; then
+                  # Truly still building after 3 min
+                  echo "HANDBOOK_URL=$PAGES_BASE" >> "$GITHUB_ENV"
+                  echo "| Product handbook | ⚠️ | docs/ deployed but Pages still building after 3 min — [\`$PAGES_BASE\`]($PAGES_BASE) |" >> /tmp/checklist-table.md
+                  exit 0
                 fi
               else
                 echo "| Product handbook | ❌ | docs/ folder exists but has no commits |" >> /tmp/checklist-table.md
