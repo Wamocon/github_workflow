@@ -463,12 +463,12 @@ jobs:
           LP_URL="${LP_PAGES_URL}"
           HB_URL="${HANDBOOK_URL}"
 
-          # Build description (max 350 chars, plain text)
-          APP_LABEL="${APP_URL:-no link}"
-          LP_LABEL="${LP_URL:-no link}"
-          HB_LABEL="${HB_URL:-no link}"
-          DESC="App: $APP_LABEL | Landing page: $LP_LABEL | Handbook: $HB_LABEL"
-          # Truncate safely
+          # Build description: URLs only, no labels (keeps About section clean)
+          PARTS=()
+          [[ -n "$APP_URL" ]] && PARTS+=("$APP_URL") || PARTS+=("no link")
+          [[ -n "$LP_URL" ]]  && PARTS+=("$LP_URL")  || PARTS+=("no link")
+          [[ -n "$HB_URL" ]]  && PARTS+=("$HB_URL")  || PARTS+=("no link")
+          DESC="${PARTS[0]} | ${PARTS[1]} | ${PARTS[2]}"
           DESC="${DESC:0:350}"
 
           # Best homepage URL: app > LP > handbook
@@ -513,15 +513,13 @@ jobs:
           [[ -n "$CUSTOM_DOMAIN" ]] && APP_URL="https://$CUSTOM_DOMAIN"
           [[ -z "$APP_URL" ]] && APP_URL="${VERCEL_APP_URL:-N/A}"
 
+          # Release notes = the same checklist table written by all previous steps
           {
             echo "## 🚀 Launch — $(date -u '+%Y-%m-%d')"
             echo ""
-            echo "**App:** ${APP_URL}"
-            echo "**Landing page:** ${LP_PAGES_URL:-N/A}"
-            echo "**Handbook:** ${HANDBOOK_URL:-N/A}"
-            echo ""
-            echo "> Generated automatically by the Launch Checklist workflow."
-            echo "> Run: [${{ github.run_number }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})"
+            echo "| Check | Status | Detail |"
+            echo "|:---|:---:|:---|"
+            cat /tmp/checklist-table.md
           } > /tmp/release-notes.md
 
           # Check if the tag already exists
