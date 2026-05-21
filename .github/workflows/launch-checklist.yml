@@ -314,6 +314,12 @@ jobs:
           PAGES_URL=$(echo "$PAGES_JSON" | jq -r '.html_url // empty')
           PAGES_STATUS=$(echo "$PAGES_JSON" | jq -r '.status // empty')
 
+          # If html_url is absent the API returned an error body (e.g. 404 = Pages not enabled)
+          if [[ -z "$PAGES_URL" ]]; then
+            echo "| Landing page — GitHub Pages | ❌ | Pages not enabled on \`$LP_REPO\` |" >> /tmp/checklist-table.md
+            exit 0
+          fi
+
           if [[ "$PAGES_STATUS" == "built" ]]; then
             HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 "$PAGES_URL" 2>/dev/null || echo "000")
             if [[ "$HTTP_CODE" =~ ^(200|301|302)$ ]]; then
@@ -530,13 +536,13 @@ jobs:
           [[ -n "$CUSTOM_DOMAIN" ]] && APP_URL="https://$CUSTOM_DOMAIN"
           [[ -z "$APP_URL" ]] && APP_URL="${VERCEL_APP_URL:-N/A}"
 
-          # Release notes = the same checklist table written by all previous steps
+          # Release notes = checklist rows (Repo About excluded — it's infra, not a launch gate)
           {
             echo "## 🚀 Launch — $(date -u '+%Y-%m-%d')"
             echo ""
             echo "| Check | Status | Detail |"
             echo "|:---|:---:|:---|"
-            cat /tmp/checklist-table.md
+            grep -v "^| Repo About" /tmp/checklist-table.md
           } > /tmp/release-notes.md
 
           # Check if the tag already exists
