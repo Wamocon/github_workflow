@@ -463,11 +463,11 @@ jobs:
           LP_URL="${LP_PAGES_URL}"
           HB_URL="${HANDBOOK_URL}"
 
-          # Build description: URLs only, no labels (keeps About section clean)
+          # Build description: URLs where available, labelled fallback where not
           PARTS=()
-          [[ -n "$APP_URL" ]] && PARTS+=("$APP_URL") || PARTS+=("no link")
-          [[ -n "$LP_URL" ]]  && PARTS+=("$LP_URL")  || PARTS+=("no link")
-          [[ -n "$HB_URL" ]]  && PARTS+=("$HB_URL")  || PARTS+=("no link")
+          [[ -n "$APP_URL" ]] && PARTS+=("$APP_URL")     || PARTS+=("no app")
+          [[ -n "$LP_URL" ]]  && PARTS+=("$LP_URL")     || PARTS+=("no landing page")
+          [[ -n "$HB_URL" ]]  && PARTS+=("$HB_URL")     || PARTS+=("no handbook")
           DESC="${PARTS[0]} | ${PARTS[1]} | ${PARTS[2]}"
           DESC="${DESC:0:350}"
 
@@ -504,9 +504,9 @@ jobs:
             exit 0
           fi
 
-          # Determine tag
+          # Determine tag — append run number so every run creates a unique release
           RELEASE_TAG="${{ inputs.release_version }}"
-          [[ -z "$RELEASE_TAG" ]] && RELEASE_TAG="v$(date -u '+%Y.%m.%d')"
+          [[ -z "$RELEASE_TAG" ]] && RELEASE_TAG="v$(date -u '+%Y.%m.%d')-${{ github.run_number }}"
 
           # Build release notes into a temp file (avoids multi-line string YAML indent issues)
           APP_URL=""
