@@ -135,14 +135,16 @@ jobs:
             2>/dev/null || echo '{}')
 
           PROJECT_ID=$(echo "$PROJECT_RESP" | jq -r '.id // empty')
+          PROJECT_NAME=$(echo "$PROJECT_RESP" | jq -r '.name // empty')
 
           if [[ -z "$PROJECT_ID" ]]; then
             echo "| Vercel — project exists | ❌ | Project \`$VERCEL_PROJECT\` not found |" >> /tmp/checklist-table.md
             exit 0
           fi
 
+          [[ -z "$PROJECT_NAME" ]] && PROJECT_NAME="$VERCEL_PROJECT"
           echo "VERCEL_PROJECT_ID=$PROJECT_ID" >> "$GITHUB_ENV"
-          echo "| Vercel — project exists | ✅ | \`$PROJECT_ID\` |" >> /tmp/checklist-table.md
+          echo "| Vercel — project exists | ✅ | \`$PROJECT_NAME\` |" >> /tmp/checklist-table.md
 
           # ── Production deployment ──────────────────────────────────────────
           PROD_RESP=$(curl -sf \
@@ -294,15 +296,18 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.ORG_PAT }}
         run: |
-          REPO_JSON=$(gh api "repos/$REPO_OWNER/$LP_REPO" 2>/dev/null || echo "")
+          # gh api can return JSON error bodies (404) that are non-empty.
+          # Treat as valid only when full_name and html_url exist.
+          REPO_JSON=$(gh api "repos/$REPO_OWNER/$LP_REPO" 2>/dev/null || echo "{}")
+          REPO_URL=$(echo "$REPO_JSON" | jq -r '.html_url // empty')
+          REPO_FULL_NAME=$(echo "$REPO_JSON" | jq -r '.full_name // empty')
 
-          if [[ -z "$REPO_JSON" ]]; then
+          if [[ -z "$REPO_FULL_NAME" || -z "$REPO_URL" ]]; then
             echo "| Landing page — repo | ❌ | \`$REPO_OWNER/$LP_REPO\` not found |" >> /tmp/checklist-table.md
             echo "| Landing page — GitHub Pages | ⚠️ | Skipped (repo not found) |" >> /tmp/checklist-table.md
             exit 0
           fi
 
-          REPO_URL=$(echo "$REPO_JSON" | jq -r '.html_url // empty')
           echo "| Landing page — repo | ✅ | [$REPO_OWNER/$LP_REPO]($REPO_URL) |" >> /tmp/checklist-table.md
 
           PAGES_JSON=$(gh api "repos/$REPO_OWNER/$LP_REPO/pages" 2>/dev/null || echo "")
