@@ -90,11 +90,85 @@ jobs:
           
           echo "VERCEL_PROJECT_ID=$NEW_PROJECT_ID" >> "$GITHUB_ENV"
 
-      - name: Pull Vercel environment
+      - name: Determine deployment strategy from Vercel env vars
         run: |
-          export GITHUB_ACTIONS=""
-          export GITHUB_REPOSITORY=""
-          vercel pull --yes --environment=${{ inputs.vercel_env }} --token=${{ secrets.VERCEL_TOKEN }}
+          set -euo pipefail
+
+          REQUESTED_ENV="${{ inputs.vercel_env }}"
+          PROJECT_ID="${VERCEL_PROJECT_ID:-}"
+
+          if [[ "$REQUESTED_ENV" != "preview" && "$REQUESTED_ENV" != "production" ]]; then
+            echo "::error::vercel_env muss preview oder production sein."
+            exit 1
+          fi
+
+          if [[ -z "$PROJECT_ID" ]]; then
+            echo "::error::VERCEL_PROJECT_ID fehlt nach der Provisionierung."
+            exit 1
+          fi
+
+          TEAM_QUERY=""
+          [[ -n "$VERCEL_ORG_ID" ]] && TEAM_QUERY="teamId=$VERCEL_ORG_ID"
+
+          URL="https://api.vercel.com/v9/projects/$PROJECT_ID/env"
+          [[ -n "$TEAM_QUERY" ]] && URL="$URL?$TEAM_QUERY"
+
+          ENV_JSON=$(curl -sf -H "Authorization: Bearer ${{ secrets.VERCEL_TOKEN }}" "$URL" 2>/dev/null || echo '{}')
+
+          SCHEMA_KEY="NEXT_PUBLIC_DB_SCHEMA"
+
+          PREVIEW_KEYS=$(echo "$ENV_JSON" | jq -r '.envs[]? | select((.target // []) | index("preview")) | .key' | sort -u || true)
+          PRODUCTION_KEYS=$(echo "$ENV_JSON" | jq -r '.envs[]? | select((.target // []) | index("production")) | .key' | sort -u || true)
+
+          PREVIEW_KEYS_NON_SCHEMA=$(echo "$ENV_JSON" | jq -r --arg k "$SCHEMA_KEY" '.envs[]? | select((.target // []) | index("preview")) | select(.key != $k) | .key' | sort -u || true)
+          PRODUCTION_KEYS_NON_SCHEMA=$(echo "$ENV_JSON" | jq -r --arg k "$SCHEMA_KEY" '.envs[]? | select((.target // []) | index("production")) | select(.key != $k) | .key' | sort -u || true)
+
+          # Compare the dedicated schema key separately (if available from API)
+          PREVIEW_SCHEMA_VALUE=$(echo "$ENV_JSON" | jq -r --arg k "$SCHEMA_KEY" '.envs[]? | select((.target // []) | index("preview")) | select(.key == $k) | .value // empty' | head -n 1 || true)
+          PRODUCTION_SCHEMA_VALUE=$(echo "$ENV_JSON" | jq -r --arg k "$SCHEMA_KEY" '.envs[]? | select((.target // []) | index("production")) | select(.key == $k) | .value // empty' | head -n 1 || true)
+
+          PREVIEW_COUNT=$(printf "%s\n" "$PREVIEW_KEYS" | grep -c . || true)
+          PRODUCTION_COUNT=$(printf "%s\n" "$PRODUCTION_KEYS" | grep -c . || true)
+
+          SCHEMA_DIFFERENT=false
+          if [[ -n "$PREVIEW_SCHEMA_VALUE" || -n "$PRODUCTION_SCHEMA_VALUE" ]]; then
+            if [[ "$PREVIEW_SCHEMA_VALUE" != "$PRODUCTION_SCHEMA_VALUE" ]]; then
+              SCHEMA_DIFFERENT=true
+            fi
+          fi
+
+          VARS_IDENTICAL=false
+          if [[ -n "$PREVIEW_KEYS_NON_SCHEMA" && "$PREVIEW_KEYS_NON_SCHEMA" == "$PRODUCTION_KEYS_NON_SCHEMA" && "$SCHEMA_DIFFERENT" == "false" ]]; then
+            VARS_IDENTICAL=true
+          fi
+
+          # Requested behavior:
+          # - preview selected  -> deploy preview only
+          # - production selected:
+          #     * if vars identical -> deploy preview + production
+          #     * else              -> deploy production only
+          DEPLOY_LIST="preview"
+          if [[ "$REQUESTED_ENV" == "production" ]]; then
+            if [[ "$VARS_IDENTICAL" == "true" ]]; then
+              DEPLOY_LIST="preview production"
+            else
+              DEPLOY_LIST="production"
+            fi
+          fi
+
+          echo "DEPLOY_LIST=$DEPLOY_LIST" >> "$GITHUB_ENV"
+          echo "VARS_IDENTICAL=$VARS_IDENTICAL" >> "$GITHUB_ENV"
+
+          {
+            echo "### Deployment Strategy"
+            echo "**Requested:** $REQUESTED_ENV"
+            echo "**Preview vars:** $PREVIEW_COUNT"
+            echo "**Production vars:** $PRODUCTION_COUNT"
+            echo "**Schema key checked:** $SCHEMA_KEY"
+            echo "**Schema differs:** $SCHEMA_DIFFERENT"
+            echo "**Identical key set:** $VARS_IDENTICAL"
+            echo "**Will deploy:** $DEPLOY_LIST"
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Apply DB schema
         run: |
@@ -105,52 +179,68 @@ jobs:
           echo "NEXT_PUBLIC_DB_SCHEMA=$SCHEMA" >> "$GITHUB_ENV"
           echo "Datenbank-Schema gesetzt auf: $SCHEMA"
 
-      - name: Build project
-        run: |
-          export GITHUB_ACTIONS=""
-          export GITHUB_REPOSITORY=""
-          if [[ "${{ inputs.vercel_env }}" == "production" ]]; then
-            vercel build --prod --token=${{ secrets.VERCEL_TOKEN }}
-          else
-            vercel build --token=${{ secrets.VERCEL_TOKEN }}
-          fi
-
-      - name: Deploy to Vercel
+      - name: Build and Deploy selected environment(s)
         id: deploy
         run: |
           export GITHUB_ACTIONS=""
           export GITHUB_REPOSITORY=""
           set -euo pipefail
 
-          PROD_FLAG=""
-          [[ "${{ inputs.vercel_env }}" == "production" ]] && PROD_FLAG="--prod"
+          ANY_FAILED=false
 
-          rm -f vercel-deploy.log
-          deploy_ok=false
+          for TARGET_ENV in $DEPLOY_LIST; do
+            echo ""
+            echo "------------------------------------------"
+            echo "Starting deployment for: $TARGET_ENV"
+            echo "------------------------------------------"
 
-          if vercel deploy --prebuilt $PROD_FLAG --yes --archive=tgz --token=${{ secrets.VERCEL_TOKEN }} > vercel-deploy.log 2>&1; then
-            deploy_ok=true
-          fi
+            # Pull environment-specific vars first
+            vercel pull --yes --environment="$TARGET_ENV" --token=${{ secrets.VERCEL_TOKEN }}
 
-          echo "=========================================="
-          echo " FULL VERCEL DEPLOY LOG"
-          echo "=========================================="
-          cat vercel-deploy.log || true
-          echo "=========================================="
+            PROD_FLAG=""
+            if [[ "$TARGET_ENV" == "production" ]]; then
+              vercel build --prod --token=${{ secrets.VERCEL_TOKEN }}
+              PROD_FLAG="--prod"
+            else
+              vercel build --token=${{ secrets.VERCEL_TOKEN }}
+            fi
 
-          if [[ "$deploy_ok" != "true" ]]; then
-            echo "### Deployment Failed" >> "$GITHUB_STEP_SUMMARY"
+            LOG_FILE="vercel-deploy-${TARGET_ENV}.log"
+            rm -f "$LOG_FILE"
+
+            if vercel deploy --prebuilt $PROD_FLAG --yes --archive=tgz --token=${{ secrets.VERCEL_TOKEN }} > "$LOG_FILE" 2>&1; then
+              DEPLOY_OK=true
+            else
+              DEPLOY_OK=false
+              ANY_FAILED=true
+            fi
+
+            echo "=========================================="
+            echo " FULL VERCEL DEPLOY LOG ($TARGET_ENV)"
+            echo "=========================================="
+            cat "$LOG_FILE" || true
+            echo "=========================================="
+
+            DEPLOY_URL=$(grep -Eo 'https://[^[:space:]]+\.vercel\.app' "$LOG_FILE" | sed 's/Building.*//' | grep -v '^$' | tail -n 1 || true)
+
+            if [[ "$DEPLOY_OK" == "true" ]]; then
+              if [[ -n "$DEPLOY_URL" ]]; then
+                echo "deploy_url_${TARGET_ENV}=$DEPLOY_URL" >> "$GITHUB_OUTPUT"
+              fi
+              {
+                echo "### Deployed to Vercel"
+                echo "**Environment:** $TARGET_ENV"
+                echo "**Schema:** ${{ inputs.db_schema || 'public' }}"
+                echo "**URL:** ${DEPLOY_URL:-n/a}"
+              } >> "$GITHUB_STEP_SUMMARY"
+            else
+              {
+                echo "### Deployment Failed"
+                echo "**Environment:** $TARGET_ENV"
+              } >> "$GITHUB_STEP_SUMMARY"
+            fi
+          done
+
+          if [[ "$ANY_FAILED" == "true" ]]; then
             exit 1
-          fi
-
-          DEPLOY_URL=$(grep -Eo 'https://[^[:space:]]+\.vercel\.app' vercel-deploy.log | sed 's/Building.*//' | grep -v '^$' | tail -n 1 || true)
-
-          if [[ -n "$DEPLOY_URL" ]]; then
-            echo "deploy_url=$DEPLOY_URL" >> "$GITHUB_OUTPUT"
-            {
-              echo "### Deployed to Vercel"
-              echo "**Environment:** ${{ inputs.vercel_env }}"
-              echo "**Schema:** ${{ inputs.db_schema || 'public' }}"
-              echo "**URL:** $DEPLOY_URL"
-            } >> "$GITHUB_STEP_SUMMARY"
           fi
