@@ -171,6 +171,8 @@ jobs:
 
           if [[ -n "$PREVIEW_URL" ]]; then
             echo "| Vercel — preview deployment | ✅ | [open deployment](https://$PREVIEW_URL) |" >> /tmp/checklist-table.md
+          elif [[ -n "$PROD_URL" ]]; then
+            echo "| Vercel — preview deployment | ✅ | [open deployment](https://$PROD_URL) (no dedicated preview — using production) |" >> /tmp/checklist-table.md
           else
             echo "| Vercel — preview deployment | ❌ | No READY preview deployment found |" >> /tmp/checklist-table.md
           fi
