@@ -69,7 +69,7 @@ jobs:
       # (avoids an infinite loop when autofix commits back to main).
       # The action is a no-op if there are no changes to commit.
       - name: Commit auto-fixed changes
-        uses: stefanzweifel/git-auto-commit-action@v5
+        uses: stefanzweifel/git-auto-commit-action@v7
         with:
           commit_message: "style: auto-fix lint and formatting issues [skip ci]"
           branch: ${{ github.head_ref || github.ref_name }}
