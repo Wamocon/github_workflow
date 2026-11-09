@@ -31,7 +31,7 @@ jobs:
       # github.head_ref is only set on pull_request events.
       # For push events (e.g. push to main), fall back to github.ref_name.
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           ref: ${{ github.head_ref || github.ref_name }}
           token: ${{ secrets.GITHUB_TOKEN }}
